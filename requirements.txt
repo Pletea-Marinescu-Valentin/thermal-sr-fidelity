@@ -1,0 +1,15 @@
+# Phase 1 (verification) -- installed and confirmed working
+numpy>=2.5
+opencv-python-headless>=5.0
+pillow>=12.3
+scipy>=1.14
+
+# Phase 2 (training) -- NOT yet installed.
+# RTX 5050 is Blackwell (sm_120) and requires the CUDA 12.8 wheels:
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
+# torch
+# torchvision
+# lpips
+# tifffile
+# pyyaml
+# tqdm

@@ -1,0 +1,38 @@
+# Environment
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+
+# Datasets: redistribution is not permitted by the providers' licence terms.
+# Use scripts/ to download and prepare them locally.
+/data/
+
+# Training artefacts. Checkpoints exceed GitHub's per-file limit; see README.
+/runs/
+
+# Derived caches, regenerable via scripts/build_splits.py
+/configs/train_histogram.npy
+
+# Per-frame records are large and regenerable via scripts/eval_all.py
+/results/*_per_frame.json
+
+# Rendered frames are derived from the source imagery and are therefore not
+# redistributed; regenerate with scripts/make_figures.py
+/results/figures/
+
+# Manuscript sources
+/paper/
+
+# Internal working notes (working language, and records dataset access details
+# that are not ours to publish)
+/PLAN.md
+
+# LaTeX build products
+*.aux
+*.bbl
+*.blg
+*.fdb_latexmk
+*.fls
+*.out
+*.synctex.gz
