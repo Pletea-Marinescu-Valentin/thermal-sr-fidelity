@@ -64,7 +64,14 @@ python scripts/train.py edsr_lite --steps 100000 --resume
 python scripts/eval_all.py --preset classic     # + paired significance tests
 python scripts/eval_iisr.py --model esrgan      # cross-sensor stress test
 python scripts/make_figures.py                  # qualitative overlays
+python scripts/make_scaling_figure.py           # M6/M7 ladder and plane
+python scripts/positive_control.py              # constructed references (protocol check)
+python scripts/make_robustness.py               # threshold sweep + per-frame separability
+python scripts/make_sensitivity.py              # M6/M7 vs their design choices
+python scripts/eval_ablation.py --run runs/edsr_tex_x4_classic   # texture-loss arm
+python scripts/make_paper_tables.py             # LaTeX tables from results/*.json
 python scripts/make_report.py                   # assembles results/REPORT.md
+python scripts/make_overleaf_zip.py             # bundles paper/ into overleaf.zip
 ```
 
 Splits are fixed and committed (`configs/splits.json`, `configs/scaler.json`), so
@@ -79,6 +86,18 @@ Not included, and regenerable with the commands above: dataset files, per-frame
 result records, rendered figures (derived from the source imagery), and trained
 checkpoints (the largest exceeds GitHub's per-file limit). Checkpoints are available
 from the authors on request.
+
+## Training with the texture objective
+
+The multi-scale texture loss of `src/tsrf/train/losses.py` is off by default;
+every model in the main table is trained with L1 alone. To reproduce the
+ablation:
+
+```bash
+python scripts/train.py edsr_lite --steps 15000 --lr 5e-5 --texture-weight 0.005 \
+    --init-from runs/edsr_lite_x4_classic/best.pt --out runs/edsr_tex_x4_classic
+python scripts/eval_ablation.py --run runs/edsr_tex_x4_classic
+```
 
 ## Tests
 
