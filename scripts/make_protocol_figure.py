@@ -28,9 +28,11 @@ PERCEPT = "#e6e6e6"
 
 
 def box(ax, x, y, w, h, label, sub=None, face=MODEL, fontsize=7.4):
+    # clip_on=False: the boxstyle's padding is drawn *outside* (x, y, w, h), so
+    # a box flush against the axes edge would lose part of its own border.
     ax.add_patch(FancyBboxPatch(
         (x, y), w, h, boxstyle="round,pad=0.012,rounding_size=0.02",
-        linewidth=0.8, edgecolor=INK, facecolor=face))
+        linewidth=0.8, edgecolor=INK, facecolor=face, clip_on=False))
     cy = y + h / 2 + (0.035 if sub else 0)
     ax.text(x + w / 2, cy, label, ha="center", va="center",
             fontsize=fontsize, color=INK)
@@ -51,8 +53,10 @@ def arrow(ax, x0, y0, x1, y1, label=None, rad=0.0):
 
 def main():
     fig, ax = plt.subplots(figsize=(7.1, 2.15))
-    ax.set_xlim(0, 1)
-    ax.set_ylim(0, 1)
+    # Margin beyond the drawing so the outermost borders are inside the canvas;
+    # bbox_inches="tight" then crops back to the ink actually drawn.
+    ax.set_xlim(-0.025, 1.025)
+    ax.set_ylim(-0.06, 1.02)
     ax.axis("off")
 
     h, y = 0.20, 0.60

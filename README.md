@@ -24,6 +24,33 @@ training and evaluation pipeline used to compare five reconstruction methods.
 
 PSNR, SSIM and LPIPS are reported alongside for contrast.
 
+M4, M6 and M7 are three views of the same pixels and are meant to be read
+together: M4 gives the amount of fine variation a model emits, M6 how that
+variation scales with distance, and M7 whether it corresponds to what the
+sensor recorded. A model can match the first two while failing the third, which
+is what an adversarial model does here.
+
+## Protocol validation
+
+The metrics are checked against references whose answer is known by
+construction, rather than only applied to model outputs:
+
+```bash
+python scripts/positive_control.py     # phase-randomised surrogates
+python scripts/make_robustness.py      # threshold sweep, per-frame separability
+python scripts/make_sensitivity.py     # M6/M7 against their own design choices
+```
+
+`positive_control.py` builds predictions that keep the reference's
+low-frequency content and either attenuate the measured texture or replace it
+with a phase-randomised surrogate carrying no measured signal at all. The
+surrogate preserves the power spectrum exactly, so M4 and M6 rank it as the
+more faithful reconstruction and only M7 rejects it; the trained models land on
+these controls. `make_sensitivity.py` sweeps the window ladder and the flat-set
+definition, and resolves M7 by scale to locate the point below which no method
+recovers the measurement. Outputs are `results/positive_control.json`,
+`robustness.json` and `sensitivity.json`.
+
 ## Data
 
 Neither dataset is redistributed here.
@@ -57,7 +84,9 @@ bash   scripts/pipeline.sh                             # train, evaluate, figure
 ```
 
 `pipeline.sh` is resume-safe: re-running it continues from the last checkpoint.
-Individual stages:
+It covers training, the two radiometric evaluations, the qualitative figures
+and the report; the cross-sensor track, the protocol validation above and the
+paper artefacts are run separately. Individual stages:
 
 ```bash
 python scripts/train.py edsr_lite --steps 100000 --resume
@@ -76,18 +105,27 @@ python scripts/make_protocol_figure.py          # Fig. 1, the protocol end to en
 python scripts/make_overleaf_zip.py             # bundles paper/ into overleaf.zip
 ```
 
+The last four write into `paper/`, which is not part of this repository (see
+below), so they are useful only alongside a local copy of the manuscript.
+
 Splits are fixed and committed (`configs/splits.json`, `configs/scaler.json`), so
 evaluation runs on exactly the frames reported in the paper.
 
 ## What is and is not in this repository
 
 Included: the metric suite, models, training and evaluation code, experiment
-configurations, split lists, and the aggregated results behind every table.
+configurations, split lists, the aggregated results behind every table, and the
+protocol-validation outputs (`positive_control.json`, `robustness.json`,
+`sensitivity.json`).
 
 Not included, and regenerable with the commands above: dataset files, per-frame
 result records, rendered figures (derived from the source imagery), and trained
 checkpoints (the largest exceeds GitHub's per-file limit). Checkpoints are available
 from the authors on request.
+
+Also not included: the `paper/` directory holding the manuscript, its figures
+and its generated tables. The code that produces those artefacts is here, but
+the manuscript itself is kept out of the public repository.
 
 ## Training with the texture objective
 
