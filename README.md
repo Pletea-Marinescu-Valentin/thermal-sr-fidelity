@@ -71,6 +71,8 @@ python scripts/make_sensitivity.py              # M6/M7 vs their design choices
 python scripts/eval_ablation.py --run runs/edsr_tex_x4_classic   # texture-loss arm
 python scripts/make_paper_tables.py             # LaTeX tables from results/*.json
 python scripts/make_report.py                   # assembles results/REPORT.md
+python scripts/check_tex_escapes.py             # guards against eaten LaTeX backslashes
+python scripts/make_protocol_figure.py          # Fig. 1, the protocol end to end
 python scripts/make_overleaf_zip.py             # bundles paper/ into overleaf.zip
 ```
 
@@ -105,7 +107,7 @@ python scripts/eval_ablation.py --run runs/edsr_tex_x4_classic
 python -m pytest tests/ -q
 ```
 
-86 tests covering the metric suite on synthetic scenes with known answers, the
+103 tests covering the metric suite on synthetic scenes with known answers, the
 degradation pipeline, the models, and the statistics. The fractal metrics are
 validated against synthetic fractional Brownian surfaces of known Hurst
 exponent and against the two limits bracketing them: white detector noise
