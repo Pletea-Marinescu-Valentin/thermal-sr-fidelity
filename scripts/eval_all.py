@@ -30,6 +30,10 @@ HEADLINE = [
     ("m3_top1_preserved", "M3 top-1 kept", "high"),
     ("m4_texture_ratio", "M4 texture ratio", "one"),
     ("m5_gradient_ratio", "M5 gradient ratio", "one"),
+    ("m6_flat_delta_hurst", "M6 delta Hurst", "zero"),
+    ("m6_flat_dim_sr", "M6 box dim", "gt"),
+    ("m7_flat_hf_corr", "M7 texture corr", "high"),
+    ("m7_flat_hf_amp_ratio", "M7 texture amp", "one"),
 ]
 
 

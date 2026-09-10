@@ -17,3 +17,7 @@ Test split, cluster-bootstrap 95% CI over videos. n_frames=1144, videos=17.
 | M3 top-1 kept | 0.740 | 0.847 | 0.848 | 0.842 | 0.837 |
 | M4 texture ratio | 0.486 | 0.492 | 0.492 | 0.493 | 1.163 |
 | M5 gradient ratio | 0.555 | 0.715 | 0.710 | 0.712 | 0.765 |
+| M6 delta Hurst | 0.661 | 0.625 | 0.627 | 0.623 | -0.048 |
+| M6 box dim | 1.863 | 1.900 | 1.898 | 1.902 | 2.573 |
+| M7 texture corr | 0.112 | 0.130 | 0.130 | 0.129 | 0.035 |
+| M7 texture amp | 0.356 | 0.332 | 0.331 | 0.333 | 1.175 |

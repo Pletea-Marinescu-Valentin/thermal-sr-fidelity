@@ -10,7 +10,8 @@ from ..data.radiometry import RadiometricScaler, raw_to_kelvin
 from ..data.splits import parse_frame_name
 from ..metrics import (
     cold_region_smoothness, gradient_fidelity, hallucination_metrics,
-    hotspot_preservation, radiometric_error, thermal_ordering,
+    hotspot_preservation, radiometric_error, texture_correspondence,
+    texture_scaling, thermal_ordering,
 )
 from ..metrics.perceptual import perceptual_metrics
 
@@ -50,6 +51,12 @@ def evaluate_frame(hr_counts, model, scaler, scale=4, preset="classic",
     rec.update({f"m3_{k}": v for k, v in thermal_ordering(t_sr, t_gt).items()})
     rec.update({f"m4_{k}": v for k, v in cold_region_smoothness(t_sr, t_gt).items()})
     rec.update({f"m5_{k}": v for k, v in gradient_fidelity(t_sr, t_gt).items()})
+    # M6 shares M4's flat cold set, so the pair reads amplitude and scaling of
+    # the same pixels. The per-scale ladders are dropped: they are diagnostic
+    # curves, not scalars to aggregate, and they would bloat every record.
+    rec.update({f"m6_{k}": v for k, v in texture_scaling(t_sr, t_gt).items()
+                if not k.endswith("_ladder_gt_k") and not k.endswith("_ladder_sr_k")})
+    rec.update({f"m7_{k}": v for k, v in texture_correspondence(t_sr, t_gt).items()})
 
     for d in deltas_k:
         tag = f"d{int(d)}"

@@ -9,6 +9,13 @@ from .hotspot import (
     mask_iou,
     match_components,
 )
+from .fractal import (
+    DEFAULT_SCALES,
+    flat_cold_mask,
+    scaling_exponent,
+    texture_correspondence,
+    texture_scaling,
+)
 from .thermal import (
     cold_region_smoothness,
     gradient_fidelity,
@@ -22,4 +29,6 @@ __all__ = [
     "hotspot_preservation", "hallucination_metrics",
     "radiometric_error", "thermal_ordering", "cold_region_smoothness",
     "gradient_fidelity",
+    "DEFAULT_SCALES", "scaling_exponent", "flat_cold_mask", "texture_scaling",
+    "texture_correspondence",
 ]

@@ -5,7 +5,7 @@ Fidelity Protocol for Thermal Image Super-Resolution*.
 
 Thermal super-resolution is normally evaluated with PSNR, SSIM and LPIPS, none of
 which measures whether a reconstruction preserves the physical quantity a thermal
-image encodes. This repository implements a deterministic protocol of six fidelity
+image encodes. This repository implements a deterministic protocol of eight fidelity
 metrics defined on radiometric data and expressed in Kelvin, together with the
 training and evaluation pipeline used to compare five reconstruction methods.
 
@@ -19,6 +19,8 @@ training and evaluation pipeline used to compare five reconstruction methods.
 | M3 | thermal ordering (does the hottest region stay hottest) | rho |
 | M4 | texture fabrication in flat cold regions | ratio |
 | M5 | thermal-boundary gradient fidelity | ratio |
+| M6 | texture scaling: variance-scaling (Hurst) exponent and box dimension of the emitted texture | — |
+| M7 | texture correspondence: does the emitted texture match the measurement, or only its statistics | r, ratio |
 
 PSNR, SSIM and LPIPS are reported alongside for contrast.
 
@@ -84,5 +86,8 @@ from the authors on request.
 python -m pytest tests/ -q
 ```
 
-64 tests covering the metric suite on synthetic scenes with known answers, the
-degradation pipeline, the models, and the statistics.
+86 tests covering the metric suite on synthetic scenes with known answers, the
+degradation pipeline, the models, and the statistics. The fractal metrics are
+validated against synthetic fractional Brownian surfaces of known Hurst
+exponent and against the two limits bracketing them: white detector noise
+(H = 0) and a smooth bandlimited field (H = 1).
