@@ -29,6 +29,12 @@ def main():
     ap.add_argument("--val-every", type=int, default=2000)
     ap.add_argument("--out", default=None)
     ap.add_argument("--resume", action="store_true")
+    ap.add_argument("--texture-weight", type=float, default=0.0,
+                    help="weight of the M6-shaped multi-scale texture loss "
+                         "(0 = plain L1, as used for every model in Table I)")
+    ap.add_argument("--init-from", default=None,
+                    help="initialise weights from this checkpoint, without its "
+                         "optimizer or step count")
     args = ap.parse_args()
 
     out = Path(args.out or f"runs/{args.model}_x{args.scale}_{args.preset}")
@@ -56,7 +62,13 @@ def main():
                       batch_size=args.batch, total_steps=args.steps,
                       val_every=args.val_every, ckpt_every=args.val_every,
                       milestones=milestones, num_workers=args.workers,
-                      seed=args.seed)
+                      seed=args.seed, texture_weight=args.texture_weight)
+    if args.texture_weight:
+        print(f"texture loss enabled, weight {args.texture_weight}")
+    if args.init_from:
+        ck = torch.load(args.init_from, map_location="cuda", weights_only=False)
+        model.load_state_dict(ck.get("model", ck))
+        print(f"initialised from {args.init_from} (step {ck.get('step')})")
     if args.resume:
         trainer.resume()
 

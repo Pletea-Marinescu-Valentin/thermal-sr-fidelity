@@ -25,7 +25,7 @@ class Trainer:
                  total_steps=100_000, val_every=2000, ckpt_every=2000,
                  milestones=(50_000, 80_000, 95_000), gamma=0.5, num_workers=0,
                  device="cuda", seed=1337, amp_dtype=torch.bfloat16,
-                 grad_clip=None):
+                 grad_clip=None, texture_weight=0.0, texture_scales=None):
         self.device = torch.device(device)
         self.model = model.to(self.device)
         self.out = Path(out_dir)
@@ -42,6 +42,15 @@ class Trainer:
         self.sched = torch.optim.lr_scheduler.MultiStepLR(
             self.opt, milestones=list(milestones), gamma=gamma)
         self.crit = nn.L1Loss()
+        # Optional M6-shaped regulariser. Off by default: every model reported in
+        # the paper's main table is trained with L1 alone, and this is used only
+        # for the ablation of Section V-D.
+        self.texture_weight = texture_weight
+        self.texture = None
+        if texture_weight > 0:
+            from .losses import MultiScaleTextureLoss
+            kw = {"scales": texture_scales} if texture_scales else {}
+            self.texture = MultiScaleTextureLoss(**kw).to(self.device)
 
         self.total_steps = total_steps
         self.val_every = val_every
@@ -59,6 +68,10 @@ class Trainer:
         return {"step": self.step, "model": self.model.state_dict(),
                 "opt": self.opt.state_dict(), "sched": self.sched.state_dict(),
                 "best_psnr": self.best_psnr, "history": self.history,
+                # Recorded so a checkpoint says which objective produced it; a
+                # sweep whose arms are told apart only by directory name is one
+                # rename away from being mislabelled in a table.
+                "texture_weight": self.texture_weight,
                 "torch_rng": torch.get_rng_state(),
                 "cuda_rng": torch.cuda.get_rng_state_all()}
 
@@ -109,7 +122,7 @@ class Trainer:
     def train(self):
         self.model.train()
         t0 = time.time()
-        running = []
+        running, running_tex = [], []
         loader = iter(self.train_loader)
 
         while self.step < self.total_steps:
@@ -125,6 +138,13 @@ class Trainer:
             with torch.autocast("cuda", dtype=self.amp_dtype):
                 sr = self.model(lr_b)
                 loss = self.crit(sr, hr_b)
+            if self.texture is not None:
+                # In float32: the loss takes a log of a square root, and bf16 has
+                # too little mantissa for the small local variances of flat
+                # radiometric regions.
+                tex = self.texture(sr.float(), hr_b.float())
+                running_tex.append(tex.item())
+                loss = loss + self.texture_weight * tex
 
             self.opt.zero_grad(set_to_none=True)
             loss.backward()
@@ -137,15 +157,23 @@ class Trainer:
 
             if self.step % 200 == 0:
                 rate = self.step / (time.time() - t0)
+                # `running` holds the total objective, so the label must say so
+                # once a second term is switched on.
+                tag = "loss" if self.texture is not None else "L1"
+                extra = (f"  L_tex {np.mean(running_tex[-200:]):.4f}"
+                         if running_tex else "")
                 print(f"  step {self.step:6d}/{self.total_steps}  "
-                      f"L1 {np.mean(running[-200:]):.5f}  "
+                      f"{tag} {np.mean(running[-200:]):.5f}{extra}  "
                       f"lr {self.sched.get_last_lr()[0]:.2e}  "
                       f"{rate:.1f} it/s", flush=True)
 
             if self.step % self.val_every == 0:
                 m = self.validate()
                 m["step"] = self.step
-                m["train_l1"] = float(np.mean(running[-self.val_every:]))
+                m["train_loss"] = float(np.mean(running[-self.val_every:]))
+                if running_tex:
+                    m["train_texture"] = float(
+                        np.mean(running_tex[-self.val_every:]))
                 self.history.append(m)
                 star = ""
                 if m["val_psnr"] > self.best_psnr:
