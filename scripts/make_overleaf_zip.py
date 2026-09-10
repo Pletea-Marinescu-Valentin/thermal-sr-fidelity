@@ -53,6 +53,16 @@ def main():
     if not MAIN.exists():
         sys.exit(f"{MAIN} not found")
 
+    # A macro whose backslash was eaten still compiles, so the build log cannot
+    # be trusted to catch it; refuse to ship one.
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from check_tex_escapes import find
+    damaged = list(find(MAIN.read_bytes()))
+    if damaged:
+        for off, _, guess, ctx in damaged:
+            print(f"  offset {off}: \\{guess}  ...{ctx}...")
+        sys.exit("damaged LaTeX macros; run scripts/check_tex_escapes.py --fix")
+
     members = [MAIN]
     missing = []
     for name in referenced_files(MAIN):
