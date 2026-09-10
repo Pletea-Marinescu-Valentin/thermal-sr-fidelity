@@ -13,7 +13,8 @@ from tsrf.data.iisr import (  # noqa: E402
 )
 from tsrf.metrics import (  # noqa: E402
     cold_region_smoothness, gradient_fidelity, hallucination_metrics,
-    hotspot_preservation, radiometric_error, thermal_ordering,
+    hotspot_preservation, radiometric_error, texture_correspondence,
+    texture_scaling, thermal_ordering,
 )
 from tsrf.metrics.perceptual import perceptual_metrics  # noqa: E402
 from tsrf.stats import cluster_bootstrap_ci, paired_test  # noqa: E402
@@ -31,6 +32,11 @@ HEADLINE = [
     ("m3_spearman_rho", "M3 ordering rho", ""),
     ("m4_texture_ratio", "M4 flat-region texture ratio", ""),
     ("m5_gradient_ratio", "M5 gradient ratio", ""),
+    ("m6_flat_hurst_gt", "M6 reference exponent", ""),
+    ("m6_flat_delta_hurst", "M6 delta Hurst", ""),
+    ("m6_flat_dim_sr", "M6 box dimension", ""),
+    ("m7_flat_hf_amp_ratio", "M7 texture amplitude", ""),
+    ("m7_flat_hf_corr", "M7 texture correspondence", ""),
 ]
 
 
@@ -43,6 +49,12 @@ def score(sr, hr, lr_up, deltas):
                 thermal_ordering(sr, hr, delta_k=deltas[0]).items()})
     rec.update({f"m4_{k}": v for k, v in cold_region_smoothness(sr, hr).items()})
     rec.update({f"m5_{k}": v for k, v in gradient_fidelity(sr, hr).items()})
+    # M6/M7 are scale and correspondence statistics, so they carry over to 8-bit
+    # intensities unchanged: the exponent is dimensionless and the correlation is
+    # normalised. Only the amplitude terms are in levels rather than Kelvin.
+    rec.update({f"m6_{k}": v for k, v in texture_scaling(sr, hr).items()
+                if not k.endswith("_ladder_gt_k") and not k.endswith("_ladder_sr_k")})
+    rec.update({f"m7_{k}": v for k, v in texture_correspondence(sr, hr).items()})
     for d in deltas:
         tag = f"d{int(d)}"
         for k, v in hotspot_preservation(sr, hr, delta_k=d).items():

@@ -162,6 +162,163 @@ def write_texture_table(models, preset):
           f"fit resid={ref['m6_flat_fit_resid_gt']['mean']:.3f}")
 
 
+OUT_SENS = Path("paper/table_sensitivity.tex")
+
+
+def write_sensitivity_table():
+    """Design-choice sweep and the scale-resolved correspondence."""
+    src = RESULTS / "sensitivity.json"
+    if not src.exists():
+        print("sensitivity table: results/sensitivity.json missing, skipped")
+        return
+    d = json.loads(src.read_text())
+    models = d["models"]
+    head = " & ".join(SHORT.get(m, m) for m in models)
+
+    lines = [
+        r"\begin{table}[t]", r"\centering",
+        r"\caption{Design-choice sweep and scale-resolved correspondence, "
+        + f"{d['n_frames']} test frames. " + r"Top: $\Delta\hat{H}$ over five "
+        r"window ladders and four definitions of the flat set. Bottom: M7 "
+        r"correspondence as the high-pass window is varied, which locates the "
+        r"scale below which no method recovers the measurement. The separation "
+        r"between the adversarial model and the regressors survives every "
+        r"choice.}",
+        r"\label{tab:sensitivity}",
+        r"\setlength{\tabcolsep}{4pt}",
+        r"\begin{tabular}{l" + "c" * len(models) + "}",
+        r"\toprule",
+        "Setting & " + head + r" \\",
+        r"\midrule",
+        r"\multicolumn{" + str(len(models) + 1)
+        + r"}{l}{\emph{$\Delta\hat{H}$, window ladder (px)}} \\",
+    ]
+    for label, row in d["ladders"].items():
+        cells = [f"{row[m]:+.3f}" for m in models]
+        lines.append(f"\\quad {label} & " + " & ".join(cells) + r" \\")
+
+    lines.append(r"\midrule")
+    lines.append(r"\multicolumn{" + str(len(models) + 1)
+                 + r"}{l}{\emph{$\Delta\hat{H}$, flat-set percentile}} \\")
+    for label, row in d["dh_by_percentile"].items():
+        cells = [f"{row[m]:+.3f}" for m in models]
+        lines.append(f"\\quad {float(label):.0f} & " + " & ".join(cells) + r" \\")
+
+    lines.append(r"\midrule")
+    lines.append(r"\multicolumn{" + str(len(models) + 1)
+                 + r"}{l}{\emph{M7 $r$, high-pass window (px)}} \\")
+    for label, row in d["corr_by_window"].items():
+        cells = [f"{row[m]:.3f}" for m in models]
+        lines.append(f"\\quad {label} & " + " & ".join(cells) + r" \\")
+
+    lines += [r"\bottomrule", r"\end{tabular}", r"\end{table}"]
+    OUT_SENS.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    print(f"wrote {OUT_SENS}")
+
+    # Ranges the prose quotes, so they are not eyeballed off the table.
+    for block in ("ladders", "dh_by_percentile", "r_by_percentile"):
+        for m in models:
+            vals = [row[m] for row in d[block].values()]
+            print(f"  {block:<18}{SHORT.get(m, m):<10}"
+                  f"[{min(vals):+.3f}, {max(vals):+.3f}]")
+
+
+IISR_ROWS = [
+    ("m4_texture_ratio",     r"M4 $R_{\mathrm{tex}}$ " + TO1,             "{:.2f}"),
+    ("m6_flat_delta_hurst",  r"M6 $\Delta\hat{H}$ " + r"$\rightarrow 0$", "{:+.2f}"),
+    ("m7_flat_hf_amp_ratio", "M7 $a$ " + TO1,                            "{:.2f}"),
+    ("m7_flat_hf_corr",      "M7 $r$ " + UP,                             "{:.3f}"),
+]
+
+OUT_IISR = Path("paper/table_iisr.tex")
+
+
+def write_iisr_table():
+    """Cross-sensor table: two methods times two low-resolution origins."""
+    files = {t: RESULTS / f"iisr_{t}.json" for t in ("bicubic", "esrgan")}
+    if not all(f.exists() for f in files.values()):
+        print("iisr table: results missing, skipped")
+        return
+    d = {t: json.loads(f.read_text()) for t, f in files.items()}
+    n = d["bicubic"]["n_frames"]
+    ref_h = d["bicubic"]["aggregate"]["synthetic"]["m6_flat_hurst_gt"]["mean"]
+
+    lines = [
+        r"\begin{table}[t]", r"\centering",
+        r"\caption{Cross-sensor stress test on FLIR-IISR "
+        f"({n} frames, 8-bit intensity levels, not Kelvin). " + r"Only the origin "
+        r"of the low-resolution input differs between the columns of each pair. "
+        r"The reference here reads $\hat{H} = " + f"{ref_h:.2f}$, a much smoother "
+        r"field than the radiometric reference of Table~\ref{tab:texture}. Under "
+        r"this out-of-domain transfer the adversarial model no longer matches the "
+        r"reference scaling, so M6 detects what it cannot detect in domain.}",
+        r"\label{tab:iisr}",
+        r"\setlength{\tabcolsep}{4pt}",
+        r"\begin{tabular}{lcccc}",
+        r"\toprule",
+        r"& \multicolumn{2}{c}{Bicubic} & \multicolumn{2}{c}{ESRGAN} \\",
+        r"\cmidrule(lr){2-3} \cmidrule(lr){4-5}",
+        r"Metric & Synth. & Real & Synth. & Real \\",
+        r"\midrule",
+    ]
+    for key, label, fmt in IISR_ROWS:
+        cells = [fmt.format(d[t]["aggregate"][arm][key]["mean"])
+                 for t in ("bicubic", "esrgan") for arm in ("synthetic", "real")]
+        lines.append(f"{label} & " + " & ".join(cells) + r" \\")
+    lines += [r"\bottomrule", r"\end{tabular}", r"\end{table}"]
+    OUT_IISR.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    print(f"wrote {OUT_IISR}")
+
+
+CONTROL_ROWS = [
+    ("m4_texture_ratio",     r"M4 $R_{\mathrm{tex}}$ " + TO1,             "{:.3f}"),
+    ("m6_flat_delta_hurst",  r"M6 $\Delta\hat{H}$ " + r"$\rightarrow 0$", "{:+.3f}"),
+    ("m7_flat_hf_amp_ratio", "M7 $a$ " + TO1,                            "{:.3f}"),
+    ("m7_flat_hf_corr",      "M7 $r$ " + UP,                             "{:.3f}"),
+]
+
+CONTROL_COLUMNS = [
+    ("attenuated",        "Attenuated"),
+    ("fabricated_global", "Fabricated (global)"),
+    ("fabricated_local",  "Fabricated (local)"),
+]
+
+OUT_CONTROL = Path("paper/table_control.tex")
+
+
+def write_control_table():
+    """Table for the constructed references of scripts/positive_control.py."""
+    src = RESULTS / "positive_control.json"
+    if not src.exists():
+        print("control table: results/positive_control.json missing, skipped")
+        return
+    d = json.loads(src.read_text())
+    agg = d["aggregate"]
+
+    lines = [
+        r"\begin{table}[t]", r"\centering",
+        r"\caption{The protocol on references whose answer is known by "
+        r"construction, " + f"{d['n_frames']} radiometric test frames. All three "
+        r"keep the reference's low-frequency content and differ only in the fine "
+        r"texture: one attenuates the measured texture, two replace it with a "
+        r"phase-randomised surrogate carrying no measured signal at all. M4 and "
+        r"M6 rank the locally matched fabrication as the more faithful of the "
+        r"two failures; only M7 rejects it.}",
+        r"\label{tab:control}",
+        r"\setlength{\tabcolsep}{4pt}",
+        r"\begin{tabular}{l" + "c" * len(CONTROL_COLUMNS) + "}",
+        r"\toprule",
+        "Metric & " + " & ".join(lbl for _, lbl in CONTROL_COLUMNS) + r" \\",
+        r"\midrule",
+    ]
+    for key, label, fmt in CONTROL_ROWS:
+        cells = [fmt.format(agg[arm][key]["mean"]) for arm, _ in CONTROL_COLUMNS]
+        lines.append(f"{label} & " + " & ".join(cells) + r" \\")
+    lines += [r"\bottomrule", r"\end{tabular}", r"\end{table}"]
+    OUT_CONTROL.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    print(f"wrote {OUT_CONTROL}")
+
+
 ABLATION_ROWS = [
     ("std_psnr_db",          "PSNR (dB) " + UP,          "{:.2f}"),
     ("std_lpips",            "LPIPS " + DOWN,            "{:.4f}"),
@@ -235,6 +392,9 @@ def main():
     write_main_table(models)
     if args.preset == "classic":
         write_ablation_table()
+        write_control_table()
+        write_iisr_table()
+        write_sensitivity_table()
 
 
 if __name__ == "__main__":
