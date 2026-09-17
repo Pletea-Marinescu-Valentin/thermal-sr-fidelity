@@ -77,6 +77,12 @@ def synthesize_lr(hr_counts, scale=4, blur_sigma=0.0, netd_k=0.0,
     lr = imresize_bicubic(hr, 1.0 / scale)
 
     if netd_k > 0:
+        # netd_k is a temperature, the image may not be. `k_per_count` converts:
+        # 0.04 K/count for the T-linear counts of FLIR ADAS, and 1.0 for data
+        # already stored as temperature, such as the Celsius rasters of FLAME 3.
+        # Leaving it at the ADAS default on a Celsius image injects 25 times the
+        # sensor's noise, which a linear upsampler then carries into the output
+        # as texture it could not otherwise produce.
         rng = rng or np.random.default_rng()
         lr = lr + rng.normal(0.0, netd_k / k_per_count, lr.shape)
     return lr

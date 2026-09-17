@@ -98,7 +98,8 @@ def scaling_exponent(t_kelvin, mask=None, scales=DEFAULT_SCALES):
 
 
 def texture_correspondence(t_pred_k, t_gt_k, window=FLAT_WINDOW,
-                           flat_percentile=25.0, require_cold=True):
+                           flat_percentile=25.0, require_cold=True,
+                           noise_floor_k=None):
     """M7: does the emitted fine texture correspond to the measured one?
 
     M4 and M6 are both statistics of a single image: how much fine variation it
@@ -115,6 +116,9 @@ def texture_correspondence(t_pred_k, t_gt_k, window=FLAT_WINDOW,
     small amplitude, fabrication gives amplitude near 1 with r near 0, and
     genuine reconstruction is the only way to obtain both.
     """
+    from .thermal import DEFAULT_NOISE_FLOOR_K
+    noise_floor_k = (DEFAULT_NOISE_FLOOR_K if noise_floor_k is None
+                     else noise_floor_k)
     p = np.asarray(t_pred_k, dtype=np.float64)
     g = np.asarray(t_gt_k, dtype=np.float64)
     if p.shape != g.shape:
@@ -125,9 +129,19 @@ def texture_correspondence(t_pred_k, t_gt_k, window=FLAT_WINDOW,
     flat = flat_cold_mask(g, window, flat_percentile, require_cold)
 
     def stats(a, b):
+        """Correlation and amplitude ratio of two high-pass residuals.
+
+        The correlation is bounded by construction and stays meaningful
+        whenever both fields vary at all. The amplitude ratio does not: where
+        the reference is uniform to the sensor's noise floor there is no
+        measurable texture to divide by, so it is left undefined rather than
+        allowed to diverge.
+        """
         if a.size < 2 or a.std() < 1e-9 or b.std() < 1e-9:
             return float("nan"), float("nan")
-        return float(np.corrcoef(a, b)[0, 1]), float(b.std() / a.std())
+        corr = float(np.corrcoef(a, b)[0, 1])
+        ratio = float(b.std() / a.std()) if a.std() >= noise_floor_k else float("nan")
+        return corr, ratio
 
     r_flat, amp_flat = stats(hp_g[flat], hp_p[flat]) if flat.any() else (
         float("nan"), float("nan"))

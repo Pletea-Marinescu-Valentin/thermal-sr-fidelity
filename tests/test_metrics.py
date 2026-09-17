@@ -177,10 +177,16 @@ def test_ordering_undefined_below_two_regions():
 # ------------------------------------------------------------------------- M4
 
 def test_injected_texture_in_flat_area_is_detected():
-    # Realistic GT: a real sensor floor is smooth but never exactly constant.
-    gt = scene([(30, 30, 8, 20.0)], noise_k=0.05)
+    # Realistic GT: a real sensor floor is smooth but never exactly constant,
+    # and it sits above the noise floor rather than on it. The measured ADAS
+    # reference carries 0.155 K of local variation against a 50 mK NETD, so a
+    # fixture at 0.15 K is the realistic case; one at exactly 0.05 K would be
+    # pure detector noise, which the guard in cold_region_smoothness correctly
+    # declines to use as the denominator of a ratio.
+    gt = scene([(30, 30, 8, 20.0)], noise_k=0.15)
     pred = gt + RNG.normal(0, 0.5, gt.shape)            # GAN-style fake detail
     m = cold_region_smoothness(pred, gt)
+    assert m["gt_texture_measurable"] is True
     assert m["texture_ratio"] > 2.0
     assert m["excess_texture_k"] > 0.0
 

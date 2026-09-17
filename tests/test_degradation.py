@@ -135,3 +135,36 @@ def test_degradation_preserves_hotspot_peak_approximately():
     hr[100:160, 100:160] = 8300.0          # 60x60 px, 32 K above ambient
     lr = synthesize_lr(hr, scale=4)
     assert lr.max() > 8290.0
+
+
+def test_detector_noise_respects_the_units_of_the_image():
+    """NETD is a temperature; the image may be counts or degrees.
+
+    On T-linear counts the noise must be divided by the gain, on data already
+    stored as temperature it must not. Getting this wrong on a Celsius raster
+    injects 25 times the sensor noise, and a linear upsampler then carries it
+    into the output as texture the interpolator could not otherwise produce,
+    which is exactly what the texture metrics are built to detect.
+    """
+    import numpy as np
+    from tsrf.data.degradation import TAU2_NETD_K, degrade
+
+    flat = np.full((160, 160), 20.0)
+
+    celsius = degrade(flat, preset="realistic", k_per_count=1.0,
+                      rng=np.random.default_rng(0))
+    assert celsius.std() == pytest.approx(TAU2_NETD_K, rel=0.1)
+
+    # The same call on counts, where the gain converts Kelvin into counts.
+    counts = degrade(np.full((160, 160), 7500.0), preset="realistic",
+                     rng=np.random.default_rng(0))
+    assert counts.std() * 0.04 == pytest.approx(TAU2_NETD_K, rel=0.1)
+
+
+def test_classic_preset_adds_no_noise_in_either_unit():
+    import numpy as np
+    from tsrf.data.degradation import degrade
+
+    flat = np.full((160, 160), 20.0)
+    for kw in ({}, {"k_per_count": 1.0}):
+        assert degrade(flat, preset="classic", **kw).std() == pytest.approx(0.0, abs=1e-9)

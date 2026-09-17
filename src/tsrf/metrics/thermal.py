@@ -57,8 +57,15 @@ def thermal_ordering(t_pred_k, t_gt_k, delta_k=5.0, min_area=20, top_k=10):
 
 # --------------------------------------------------------------------------- M4
 
+#: Noise-equivalent temperature difference of the uncooled microbolometers used
+#: here, in Kelvin. Below this the sensor cannot distinguish variation from its
+#: own noise, so a reference region quieter than this carries no measurable
+#: texture and a ratio against it is not defined.
+DEFAULT_NOISE_FLOOR_K = 0.05
+
+
 def cold_region_smoothness(t_pred_k, t_gt_k, window=7, flat_percentile=25.0,
-                           require_cold=True):
+                           require_cold=True, noise_floor_k=DEFAULT_NOISE_FLOOR_K):
     p = np.asarray(t_pred_k, dtype=np.float64)
     g = np.asarray(t_gt_k, dtype=np.float64)
     if p.shape != g.shape:
@@ -82,13 +89,21 @@ def cold_region_smoothness(t_pred_k, t_gt_k, window=7, flat_percentile=25.0,
 
     gt_rough = float(gstd[flat].mean())
     pred_rough = float(pstd[flat].mean())
+
+    # A ratio needs a denominator the instrument can actually resolve. On some
+    # scenes the flat cold set is uniform to the quantisation of the sensor, so
+    # gt_rough falls to the noise floor or to exactly zero, and the ratio either
+    # explodes or is meaningless; on one dataset here it reached 1.8e3. The
+    # absolute excess stays defined in those frames and is reported instead.
+    measurable = gt_rough >= noise_floor_k
     return {
         "n_flat_px": int(flat.sum()),
         "residual_std_k": float(np.std(p[flat] - g[flat])),
         "gt_local_std_k": gt_rough,
         "pred_local_std_k": pred_rough,
-        "texture_ratio": pred_rough / gt_rough if gt_rough > 1e-9 else float("nan"),
+        "texture_ratio": pred_rough / gt_rough if measurable else float("nan"),
         "excess_texture_k": pred_rough - gt_rough,
+        "gt_texture_measurable": bool(measurable),
     }
 
 

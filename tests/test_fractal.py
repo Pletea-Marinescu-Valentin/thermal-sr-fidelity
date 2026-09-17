@@ -229,3 +229,56 @@ def test_correspondence_rejects_shape_mismatch():
     from tsrf.metrics.fractal import texture_correspondence
     with pytest.raises(ValueError):
         texture_correspondence(np.zeros((8, 8)), np.zeros((8, 9)))
+
+
+# ----------------------------------------------- the noise floor on ratios
+
+def test_ratios_are_undefined_below_the_sensor_noise_floor():
+    """A ratio needs a denominator the instrument can resolve.
+
+    Some scenes are uniform to the quantisation of the sensor over the whole
+    flat set. The reference then carries no measurable texture, and a ratio
+    against it is not small, it is meaningless: on the wildfire data it reached
+    1.8e3 before this guard, and a mean over frames was dominated by a handful
+    of such frames. The correlation, being bounded, stays defined.
+    """
+    from tsrf.metrics import cold_region_smoothness
+    from tsrf.metrics.fractal import texture_correspondence
+    from tsrf.metrics.thermal import DEFAULT_NOISE_FLOOR_K
+
+    rng = np.random.default_rng(30)
+    # reference quieter than the noise floor, prediction full of invention
+    gt = 290.0 + rng.standard_normal((128, 128)) * (DEFAULT_NOISE_FLOOR_K / 20)
+    pred = gt + rng.standard_normal((128, 128)) * 0.5
+
+    m4 = cold_region_smoothness(pred, gt)
+    m7 = texture_correspondence(pred, gt)
+    assert np.isnan(m4["texture_ratio"])
+    assert m4["gt_texture_measurable"] is False
+    assert np.isnan(m7["flat_hf_amp_ratio"])
+    # the absolute excess survives, and so does the correlation
+    assert np.isfinite(m4["excess_texture_k"])
+    assert np.isfinite(m7["flat_hf_corr"])
+
+
+def test_ratios_are_reported_above_the_noise_floor():
+    from tsrf.metrics import cold_region_smoothness
+    rng = np.random.default_rng(31)
+    gt = 290.0 + np.cumsum(rng.standard_normal((128, 128)), axis=0) * 0.05
+    pred = gt + rng.standard_normal((128, 128)) * 0.01
+
+    m4 = cold_region_smoothness(pred, gt)
+    assert m4["gt_texture_measurable"] is True
+    assert np.isfinite(m4["texture_ratio"])
+    assert m4["texture_ratio"] == pytest.approx(1.0, abs=0.2)
+
+
+def test_the_guard_does_not_touch_ordinary_scenes():
+    """The ADAS reference never approaches the floor, so nothing changes there."""
+    from tsrf.metrics import cold_region_smoothness
+    rng = np.random.default_rng(32)
+    gt = 290.0 + fbm_surface(128, 0.5, rng) * 2.0
+    pred = 290.0 + fbm_surface(128, 0.5, rng) * 2.0
+    a = cold_region_smoothness(pred, gt, noise_floor_k=0.0)
+    b = cold_region_smoothness(pred, gt)
+    assert a["texture_ratio"] == pytest.approx(b["texture_ratio"])
