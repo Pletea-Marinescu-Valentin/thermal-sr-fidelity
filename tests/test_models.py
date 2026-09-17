@@ -4,7 +4,9 @@ import pytest
 torch = pytest.importorskip("torch")
 
 from tsrf.models import build_model  # noqa: E402
-from tsrf.stats import cluster_bootstrap_ci, holm_bonferroni, paired_test  # noqa: E402
+from tsrf.stats import (  # noqa: E402
+    cluster_bootstrap_ci, holm_bonferroni, paired_effect, paired_test,
+)
 
 
 # ---------------------------------------------------------------------- model
@@ -209,3 +211,94 @@ def test_all_undefined_rejects_nothing():
     rejected, adj = holm_bonferroni(np.array([np.nan, np.nan]))
     assert not rejected.any()
     assert np.isnan(adj).all()
+
+
+# ------------------------------------------------------- paired effect sizes
+
+def test_paired_effect_recovers_a_known_shift():
+    rng = np.random.default_rng(0)
+    b = rng.normal(0, 1, 500)
+    a = b - 0.2 + rng.normal(0, 0.05, 500)        # shifted by -0.2, with spread
+    e = paired_effect(a, b)
+    assert e["estimate"] == pytest.approx(-0.2, abs=0.02)
+    assert e["sign_consistency"] == 1.0           # 0.05 spread never flips sign
+    # Asserting that one interval covers the true value is a coverage property
+    # that fails 5 percent of the time by construction, so it is not a test.
+    # What must hold on every sample is that the interval brackets the estimate.
+    assert e["lo"] <= e["estimate"] <= e["hi"]
+
+
+def test_interval_covers_the_true_shift_at_the_nominal_rate():
+    # The coverage property itself, checked where it belongs: over repetitions.
+    covered = 0
+    for seed in range(60):
+        rng = np.random.default_rng(seed)
+        b = rng.normal(0, 1, 200)
+        e = paired_effect(b - 0.2 + rng.normal(0, 0.05, 200), b, n_boot=400)
+        covered += e["lo"] <= -0.2 <= e["hi"]
+    assert covered >= 51                          # 85 percent of 60, generous
+
+
+def test_a_noiseless_difference_has_a_degenerate_interval():
+    # Every pair identical means the bootstrap has nothing to resample, so the
+    # interval collapses onto the estimate. That is correct, not a failure.
+    b = np.arange(100, dtype=float)
+    e = paired_effect(b - 0.2, b)
+    assert e["lo"] == pytest.approx(-0.2) and e["hi"] == pytest.approx(-0.2)
+
+
+def test_sign_consistency_separates_a_broad_shift_from_a_few_outliers():
+    # Two samples with the same mean difference. A p-value cannot tell them
+    # apart; this is the quantity that can, and it is the one the paper reports.
+    rng = np.random.default_rng(1)
+    b = np.zeros(1000)
+    broad = np.full(1000, -0.1)
+    rare = np.zeros(1000)
+    rare[:50] = -2.0                              # same mean, carried by 5%
+    assert np.mean(broad) == pytest.approx(np.mean(rare))
+    assert paired_effect(broad, b)["sign_consistency"] == 1.0
+    # The median difference here is exactly zero, so the direction falls back to
+    # the mean; otherwise the one case this number exists to flag would report
+    # no consistency at all rather than the 5 percent that is the point.
+    assert paired_effect(rare, b)["sign_consistency"] == pytest.approx(0.05)
+    del rng
+
+
+def test_paired_effect_aggregates_within_clusters():
+    # Ten frames in two clusters: the effect is over clusters, not frames, so
+    # a cluster with many frames does not outvote one with few.
+    a = np.array([1.0] * 8 + [5.0] * 2)
+    b = np.zeros(10)
+    clusters = ["x"] * 8 + ["y"] * 2
+    e = paired_effect(a, b, clusters=clusters)
+    assert e["n_clusters"] == 2 and e["n"] == 10
+    assert e["mean_diff"] == pytest.approx(3.0)   # (1 + 5) / 2, not 1.8
+
+
+def test_large_sample_wilcoxon_is_flagged_as_approximate():
+    rng = np.random.default_rng(2)
+    b = rng.normal(0, 1, 400)
+    assert paired_test(b - 0.3, b)["approximate"] is True
+    assert paired_test(b[:20] - 0.3, b[:20])["approximate"] is False
+
+
+def test_interval_contains_its_own_estimate_on_skewed_differences():
+    # The failure this guards against: bootstrapping the mean while printing
+    # the median puts the estimate outside its own interval as soon as the
+    # differences are skewed, which real metric differences are.
+    rng = np.random.default_rng(3)
+    b = np.zeros(600)
+    a = -rng.lognormal(mean=-3.0, sigma=1.2, size=600)     # heavily skewed
+    e = paired_effect(a, b)
+    assert e["median_diff"] != pytest.approx(e["mean_diff"], rel=0.05)
+    assert e["lo"] <= e["estimate"] <= e["hi"]
+    assert e["estimate"] == pytest.approx(e["median_diff"])
+
+
+def test_statistic_is_configurable_and_the_interval_follows_it():
+    rng = np.random.default_rng(4)
+    b = np.zeros(600)
+    a = -rng.lognormal(mean=-3.0, sigma=1.2, size=600)
+    e = paired_effect(a, b, statistic=np.mean)
+    assert e["estimate"] == pytest.approx(e["mean_diff"])
+    assert e["lo"] <= e["estimate"] <= e["hi"]

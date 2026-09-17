@@ -41,8 +41,72 @@ def paired_test(a, b, clusters=None):
     if a.size < 2 or np.all(a == b):
         return {"statistic": float("nan"), "p_value": float("nan"), "n": int(a.size)}
     res = sps.wilcoxon(a, b)
+    # Above ~25 pairs scipy switches from the exact distribution to a normal
+    # approximation, whose tail is an extrapolation: at n = 716 these data give
+    # z = 22.6 and a nominal p of 1e-112, a number no reader should be asked to
+    # take literally. Callers use this flag to decide whether the value may be
+    # printed or must be reported as a bound alongside an effect size.
     return {"statistic": float(res.statistic), "p_value": float(res.pvalue),
-            "n": int(a.size), "median_diff": float(np.median(a - b))}
+            "n": int(a.size), "median_diff": float(np.median(a - b)),
+            "approximate": bool(a.size > EXACT_WILCOXON_MAX_N)}
+
+
+#: Largest number of pairs for which scipy evaluates the signed-rank
+#: distribution exactly rather than by normal approximation.
+EXACT_WILCOXON_MAX_N = 25
+
+
+def paired_effect(a, b, clusters=None, n_boot=10000, alpha=0.05, seed=1337,
+                  statistic=np.median):
+    """Size of a paired difference, with its uncertainty and its consistency.
+
+    This is what a p-value from a large paired sample cannot convey. It reports
+    the difference itself, a bootstrap interval for it resampled over the same
+    units the test pairs on, and the share of units on which the difference
+    keeps its sign. The last is the part that travels: a median shift of 0.065
+    that holds on 95 percent of frames is a different claim from the same shift
+    driven by a minority of extreme ones, and the two are indistinguishable in
+    any p-value.
+
+    The interval is bootstrapped for the statistic actually reported, which
+    defaults to the median because that is the quantity the signed-rank test
+    speaks about. Resampling the mean while printing the median puts the
+    estimate outside its own interval whenever the differences are skewed, and
+    these are: on one metric here the median was -0.011 against a mean interval
+    of [-0.015, -0.014].
+    """
+    a = np.asarray(a, dtype=np.float64)
+    b = np.asarray(b, dtype=np.float64)
+    ok = np.isfinite(a) & np.isfinite(b)
+    a, b = a[ok], b[ok]
+    labels = np.asarray(clusters)[ok] if clusters is not None else np.arange(a.size)
+
+    uniq = np.unique(labels)
+    diff = np.array([np.mean(a[labels == c] - b[labels == c]) for c in uniq])
+    if diff.size == 0:
+        return {"estimate": float("nan"), "median_diff": float("nan"),
+                "mean_diff": float("nan"), "lo": float("nan"), "hi": float("nan"),
+                "sign_consistency": float("nan"), "n": 0, "n_clusters": 0}
+
+    rng = np.random.default_rng(seed)
+    boots = np.array([statistic(rng.choice(diff, diff.size))
+                      for _ in range(n_boot)])
+    lo, hi = np.percentile(boots, [100 * alpha / 2, 100 * (1 - alpha / 2)])
+
+    # Consistency is measured against the direction the aggregate points in, so
+    # the number answers "how often does this hold" rather than "how often is it
+    # negative", which would depend on the arbitrary order of the two arms. The
+    # median sets the direction; where it is exactly zero the effect is carried
+    # by a minority of units and only the mean has a sign, which is precisely
+    # the case this number exists to expose, so it must not collapse to zero.
+    direction = np.sign(np.median(diff)) or np.sign(np.mean(diff))
+    consistent = float(np.mean(np.sign(diff) == direction)) if direction else 0.0
+    return {"estimate": float(statistic(diff)),
+            "median_diff": float(np.median(diff)),
+            "mean_diff": float(np.mean(diff)),
+            "lo": float(lo), "hi": float(hi),
+            "sign_consistency": consistent,
+            "n": int(a.size), "n_clusters": int(uniq.size)}
 
 
 def holm_bonferroni(p_values, alpha=0.05):

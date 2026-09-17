@@ -345,6 +345,7 @@
    "p_value": 0.017960477526078766,
    "n": 17,
    "median_diff": 0.0,
+   "approximate": false,
    "p_adjusted": 0.03515605679930588
   },
   "rrdb": {
@@ -352,6 +353,7 @@
    "p_value": 0.011718685599768628,
    "n": 17,
    "median_diff": 0.0,
+   "approximate": false,
    "p_adjusted": 0.03515605679930588
   },
   "swinir_lite": {
@@ -359,6 +361,7 @@
    "p_value": 0.011718685599768628,
    "n": 17,
    "median_diff": 0.0,
+   "approximate": false,
    "p_adjusted": 0.03515605679930588
   },
   "esrgan": {
@@ -366,6 +369,7 @@
    "p_value": 0.007685794055213263,
    "n": 17,
    "median_diff": 0.0058823529411764705,
+   "approximate": false,
    "p_adjusted": 0.03074317622085305
   }
  }

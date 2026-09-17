@@ -20,7 +20,9 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from tsrf.data.flame3 import bootstrap_cluster  # noqa: E402
-from tsrf.stats import holm_bonferroni, paired_test  # noqa: E402
+from tsrf.stats import (  # noqa: E402
+    holm_bonferroni, paired_effect, paired_test,
+)
 
 RESULTS = Path("results")
 _cache = {}
@@ -49,6 +51,16 @@ def controlled_p(keys, preset="classic"):
     return holm_bonferroni(raw)[1]
 
 
+def controlled_effects(preset="classic"):
+    """Paired effect sizes for ESRGAN against RRDB on FLAME 3."""
+    a = json.loads((RESULTS / f"f3_esrgan_{preset}_per_frame.json").read_text())
+    b = json.loads((RESULTS / f"f3_rrdb_{preset}_per_frame.json").read_text())
+    clusters = [bootstrap_cluster(n) for n in a["names"]]
+    return {k: paired_effect([r.get(k) for r in a["records"]],
+                             [r.get(k) for r in b["records"]],
+                             clusters=clusters) for k in CONTROLLED_KEYS}
+
+
 def control(dataset, arm, key):
     d = json.loads((RESULTS / f"{dataset}positive_control.json").read_text())
     v = d["aggregate"][arm][key]
@@ -62,8 +74,7 @@ CONTROLLED_KEYS = ["std_lpips", "m0_rmse_k", "m1_d10_mask_iou",
 
 def claims():
     """(description, printed value, computed value, absolute tolerance)."""
-    delta = {k: (agg("f3_", "classic", "esrgan", k)
-                 - agg("f3_", "classic", "rrdb", k)) for k in CONTROLLED_KEYS}
+    eff = controlled_effects()
     rows = [
         # -- Setup: the reference the metrics measure against
         ("FLAME 3 reference texture in F (K)", 0.324,
@@ -89,14 +100,30 @@ def claims():
         ("FLAME 3 RRDB M0 (K)", 3.733,
          agg("f3_", "classic", "rrdb", "m0_rmse_k"), 5e-4),
 
-        # -- Results: the controlled comparison, seven signed differences
-        ("controlled dLPIPS", -0.015, delta["std_lpips"], 5e-4),
-        ("controlled dM0 (K)", 0.52, delta["m0_rmse_k"], 5e-3),
-        ("controlled dM1 IoU", -0.025, delta["m1_d10_mask_iou"], 5e-4),
-        ("controlled dM4", 0.168, delta["m4_texture_ratio"], 5e-4),
-        ("controlled dM6", -0.291, delta["m6_flat_delta_hurst"], 5e-4),
-        ("controlled dM7 amplitude", 0.212, delta["m7_flat_hf_amp_ratio"], 5e-4),
-        ("controlled dM7 correspondence", -0.068, delta["m7_flat_hf_corr"], 5e-4),
+        # -- Results: the controlled comparison, seven paired differences.
+        # These are medians over units, matched to the bootstrap interval the
+        # paper prints beside them, not means of the aggregates.
+        ("controlled LPIPS gain", 0.011, -eff["std_lpips"]["estimate"], 5e-4),
+        ("controlled LPIPS gain, CI low", 0.010, -eff["std_lpips"]["hi"], 5e-4),
+        ("controlled LPIPS gain, CI high", 0.012, -eff["std_lpips"]["lo"], 5e-4),
+        ("controlled M0 cost (K)", 0.506, eff["m0_rmse_k"]["estimate"], 5e-4),
+        ("controlled M1 IoU cost", 0.025, -eff["m1_d10_mask_iou"]["estimate"], 5e-4),
+        ("controlled M4 rise", 0.147, eff["m4_texture_ratio"]["estimate"], 5e-4),
+        ("controlled M6 move", 0.288, -eff["m6_flat_delta_hurst"]["estimate"], 5e-4),
+        ("controlled M7 amplitude rise", 0.179,
+         eff["m7_flat_hf_amp_ratio"]["estimate"], 5e-4),
+        ("controlled M7 correspondence fall", 0.065,
+         -eff["m7_flat_hf_corr"]["estimate"], 5e-4),
+        ("controlled M7 correspondence, CI low", 0.063,
+         -eff["m7_flat_hf_corr"]["hi"], 5e-4),
+        ("controlled M7 correspondence, CI high", 0.068,
+         -eff["m7_flat_hf_corr"]["lo"], 5e-4),
+        ("M7 correspondence sign consistency", 0.95,
+         eff["m7_flat_hf_corr"]["sign_consistency"], 5e-3),
+        ("lowest sign consistency of the seven", 0.89,
+         min(e["sign_consistency"] for e in eff.values()), 5e-3),
+        ("highest sign consistency of the seven", 1.00,
+         max(e["sign_consistency"] for e in eff.values()), 1e-9),
 
         # -- Results: texture block
         ("FLAME 3 ESRGAN dHurst", 0.036,
@@ -177,13 +204,14 @@ def main():
         print(f"  {'ok ' if ok else 'BAD'}  {desc:<42} paper {printed!s:>9}"
               f"   results {computed:.6g}")
 
-    # The paper states a bound rather than a value for the controlled p-values.
+    # The paper states a bound, not a value: below 1e-4 the signed-rank
+    # approximation is reporting the shape of a Gaussian tail.
     worst = float(np.max(controlled_p(CONTROLLED_KEYS)))
-    ok = worst < 1e-100
-    print(f"  {'ok ' if ok else 'BAD'}  {'controlled p_adj all < 1e-100':<42} "
+    ok = worst < 1e-4
+    print(f"  {'ok ' if ok else 'BAD'}  {'controlled p_adj all < 1e-4':<42} "
           f"largest {worst:.3g}")
     if not ok:
-        bad.append(("controlled p_adj bound", "< 1e-100", worst))
+        bad.append(("controlled p_adj bound", "< 1e-4", worst))
 
     if bad:
         print(f"\n{len(bad)} claim(s) do not match the results:")

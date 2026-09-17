@@ -1,7 +1,7 @@
 r"""Two robustness analyses the reviewer will ask for, from records already on disk.
 
 1. The negative result on discrete hallucination is reported at delta = 10 K in
-   the main table. It was pre-registered over {5, 10, 20} K, so the sweep should
+   the main table. It was pre-specified over {5, 10, 20} K, so the sweep should
    be shown rather than asserted: if M2 only vanishes at one threshold, the
    negative is an artefact of that threshold.
 
@@ -109,7 +109,7 @@ def write_delta_table(sweep, models, preset):
     cols = [m for m in models if m in sweep]
     lines = [
         r"\begin{table}[t]", r"\centering",
-        r"\caption{The discrete-hallucination result across the pre-registered "
+        r"\caption{The discrete-hallucination result across the pre-specified "
         r"thresholds, " + f"{preset} degradation. " + r"M2 counts invented hot "
         r"regions per frame. Relaxing $\delta$ raises the count and orders the "
         r"methods as expected, the interpolation floor staying at exactly zero, "
