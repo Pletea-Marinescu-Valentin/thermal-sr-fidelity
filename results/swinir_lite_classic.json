@@ -571,6 +571,13 @@
    "n": 1144,
    "n_clusters": 17
   },
+  "m4_gt_texture_measurable": {
+   "mean": 1.0,
+   "lo": 1.0,
+   "hi": 1.0,
+   "n": 1144,
+   "n_clusters": 17
+  },
   "m4_n_flat_px": {
    "mean": 20148.773601398603,
    "lo": 13312.521195231284,
