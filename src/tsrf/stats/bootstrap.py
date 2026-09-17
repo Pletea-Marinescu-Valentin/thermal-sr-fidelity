@@ -46,13 +46,29 @@ def paired_test(a, b, clusters=None):
 
 
 def holm_bonferroni(p_values, alpha=0.05):
+    """Holm's step-down correction, with undefined tests held out.
+
+    A NaN p-value means the test could not be performed, not that it produced
+    a large or a small result. Two things therefore have to happen to it, and
+    neither is automatic. It must not be ranked: `np.argsort` sorts NaN to the
+    end, where the step-down loop would hand it the running maximum of the
+    real tests and report it as their equal. On a metric set containing
+    p-values near 1e-121 that silently turned an untestable comparison, two
+    arms with literally no differing frame, into a reported p_adj of 2e-59.
+    It must also not inflate the multiplicity: correcting across m tests when
+    only k were run penalises the k that were.
+    """
     p = np.asarray(p_values, dtype=np.float64)
-    m = p.size
-    order = np.argsort(p)
-    adj = np.empty(m, dtype=np.float64)
+    adj = np.full(p.size, np.nan, dtype=np.float64)
+    valid = np.flatnonzero(np.isfinite(p))
+    m = valid.size
+    if m == 0:
+        return np.zeros(p.size, dtype=bool), adj
 
     running = 0.0
-    for rank, idx in enumerate(order):
+    for rank, idx in enumerate(valid[np.argsort(p[valid])]):
         running = max(running, (m - rank) * p[idx])
         adj[idx] = min(running, 1.0)
-    return adj <= alpha, adj
+    # NaN compares false, so undefined tests are never counted as rejections.
+    with np.errstate(invalid="ignore"):
+        return adj <= alpha, adj

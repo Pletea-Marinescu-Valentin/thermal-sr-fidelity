@@ -182,3 +182,30 @@ def test_holm_bonferroni_matches_bonferroni_on_the_smallest_p():
     p = np.array([0.004, 0.6, 0.7, 0.8])
     _, adj = holm_bonferroni(p)
     assert adj[0] == pytest.approx(0.016)      # 4 * 0.004
+
+
+def test_undefined_test_stays_undefined_and_is_not_reported_significant():
+    # A NaN p-value means the comparison could not be made: two arms with no
+    # differing frame at all. Ranked naively it lands at the end of the sort and
+    # inherits the running maximum of the real tests, which on a set carrying
+    # p ~ 1e-121 reported an untestable comparison at p_adj = 2e-59.
+    p = np.array([1e-121, 1e-60, np.nan, 0.3])
+    rejected, adj = holm_bonferroni(p)
+    assert np.isnan(adj[2])
+    assert not rejected[2]
+    assert np.all(np.isfinite(adj[[0, 1, 3]]))
+
+
+def test_undefined_tests_do_not_inflate_the_multiplicity():
+    # Three tests run, one not. The correction must be over three, not four:
+    # charging the run tests for a test that never happened is a real loss of
+    # power, not a conservative choice.
+    p = np.array([0.01, 0.02, np.nan, 0.03])
+    _, adj = holm_bonferroni(p)
+    assert adj[0] == pytest.approx(0.03)       # 3 * 0.01, not 4 * 0.01
+
+
+def test_all_undefined_rejects_nothing():
+    rejected, adj = holm_bonferroni(np.array([np.nan, np.nan]))
+    assert not rejected.any()
+    assert np.isnan(adj).all()
