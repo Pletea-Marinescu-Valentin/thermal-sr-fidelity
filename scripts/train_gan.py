@@ -33,16 +33,32 @@ def main():
     ap.add_argument("--val-every", type=int, default=2500)
     ap.add_argument("--out", default=None)
     ap.add_argument("--resume", action="store_true")
+    ap.add_argument("--dataset", default="adas", choices=["adas", "flame3"],
+                    help="adas: FLIR ADAS v2 counts; flame3: FLAME 3 Celsius")
     args = ap.parse_args()
 
-    out = Path(args.out or f"runs/esrgan_x{args.scale}_{args.preset}")
-    scaler = load_scaler()
+    suffix = "_flame3" if args.dataset == "flame3" else ""
+    out = Path(args.out or f"runs/esrgan_x{args.scale}_{args.preset}{suffix}")
 
-    train_ds = ThermalPatchDataset("train", scaler=scaler, patch_lr=args.patch,
-                                   scale=args.scale, preset=args.preset,
-                                   augment=True, seed=args.seed)
-    val_ds = ThermalFrameDataset("val", scaler=scaler, scale=args.scale,
-                                 preset=args.preset)
+    if args.dataset == "flame3":
+        from tsrf.data.flame3 import (
+            Flame3FrameDataset, Flame3PatchDataset, Flame3Scaler,
+        )
+        scaler = Flame3Scaler()
+        train_ds = Flame3PatchDataset("f3train", scaler=scaler,
+                                      patch_lr=args.patch, scale=args.scale,
+                                      preset=args.preset, augment=True)
+        val_ds = Flame3FrameDataset("f3val", scaler=scaler, scale=args.scale,
+                                    preset=args.preset)
+    else:
+        scaler = load_scaler()
+        train_ds = ThermalPatchDataset("train", scaler=scaler,
+                                       patch_lr=args.patch, scale=args.scale,
+                                       preset=args.preset, augment=True,
+                                       seed=args.seed)
+        val_ds = ThermalFrameDataset("val", scaler=scaler, scale=args.scale,
+                                     preset=args.preset)
+    print(f"dataset: {args.dataset}   scaler: {scaler}")
 
     # The generator arch must equal the RRDB it is initialised from, so both read
     # from the same registry entry ("esrgan" mirrors "rrdb").

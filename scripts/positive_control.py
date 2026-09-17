@@ -112,17 +112,38 @@ def score(pred, gt):
     }
 
 
+def reference_frames(dataset, n):
+    """Reference frames in Kelvin, from either dataset.
+
+    Returns (name, loader) pairs rather than arrays, so only one frame is held
+    in memory at a time.
+    """
+    if dataset == "flame3":
+        from tsrf.data.flame3 import frames as f3_frames
+        from tsrf.data.flame3 import load_kelvin
+        return [(p.name, (lambda p=p: load_kelvin(p))) for p in f3_frames("cv")[:n]]
+    names = load_splits()["test"][:n]
+    return [(nm, (lambda nm=nm: raw_to_kelvin(
+        np.array(Image.open(SPLIT_DIR / nm), dtype=np.float64)))) for nm in names]
+
+
 def main():
-    frames = load_splits()["test"][:N_FRAMES]
+    import argparse
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--dataset", default="adas", choices=["adas", "flame3"])
+    args = ap.parse_args()
+
+    out = (Path("results/f3_positive_control.json") if args.dataset == "flame3"
+           else OUT)
+    frames = reference_frames(args.dataset, N_FRAMES)
     rng = np.random.default_rng(1337)
-    print(f"{len(frames)} frames, attenuation {ATTENUATION}, "
+    print(f"{args.dataset}: {len(frames)} frames, attenuation {ATTENUATION}, "
           f"surrogate = phase randomisation\n")
 
     recs = {"attenuated": [], "fabricated_global": [], "fabricated_local": []}
     corr_check = []
-    for i, name in enumerate(frames, 1):
-        raw = np.array(Image.open(SPLIT_DIR / name), dtype=np.float64)
-        gt = raw_to_kelvin(raw)
+    for i, (name, load) in enumerate(frames, 1):
+        gt = load()
         controls = build_controls(gt, rng)
         for arm, pred in controls.items():
             recs[arm].append(score(pred, gt))
@@ -158,12 +179,13 @@ def main():
                       f" [{agg[a][k]['lo']:>3.2f}]" for a in arms)
         print(f"{k:<26}{row}")
 
-    OUT.parent.mkdir(exist_ok=True)
-    OUT.write_text(json.dumps({
+    out.parent.mkdir(exist_ok=True)
+    out.write_text(json.dumps({
+        "dataset": args.dataset,
         "n_frames": len(frames), "attenuation": ATTENUATION,
         "residual_correlation_upper_bound": float(np.mean(corr_check)),
         "aggregate": agg}, indent=1))
-    print(f"\nwrote {OUT}")
+    print(f"\nwrote {out}")
 
 
 if __name__ == "__main__":

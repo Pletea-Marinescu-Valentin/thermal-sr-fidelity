@@ -35,16 +35,34 @@ def main():
     ap.add_argument("--init-from", default=None,
                     help="initialise weights from this checkpoint, without its "
                          "optimizer or step count")
+    ap.add_argument("--dataset", default="adas", choices=["adas", "flame3"],
+                    help="adas: FLIR ADAS v2 counts; flame3: FLAME 3 Celsius")
     args = ap.parse_args()
 
-    out = Path(args.out or f"runs/{args.model}_x{args.scale}_{args.preset}")
-    scaler = load_scaler()
+    suffix = "_flame3" if args.dataset == "flame3" else ""
+    out = Path(args.out
+               or f"runs/{args.model}_x{args.scale}_{args.preset}{suffix}")
 
-    train_ds = ThermalPatchDataset("train", scaler=scaler, patch_lr=args.patch,
-                                   scale=args.scale, preset=args.preset,
-                                   netd_k=args.netd, augment=True, seed=args.seed)
-    val_ds = ThermalFrameDataset("val", scaler=scaler, scale=args.scale,
-                                 preset=args.preset)
+    if args.dataset == "flame3":
+        from tsrf.data.flame3 import (
+            Flame3FrameDataset, Flame3PatchDataset, Flame3Scaler,
+        )
+        scaler = Flame3Scaler()
+        train_ds = Flame3PatchDataset("f3train", scaler=scaler,
+                                      patch_lr=args.patch, scale=args.scale,
+                                      preset=args.preset, netd_k=args.netd,
+                                      augment=True)
+        val_ds = Flame3FrameDataset("f3val", scaler=scaler, scale=args.scale,
+                                    preset=args.preset)
+    else:
+        scaler = load_scaler()
+        train_ds = ThermalPatchDataset("train", scaler=scaler,
+                                       patch_lr=args.patch, scale=args.scale,
+                                       preset=args.preset, netd_k=args.netd,
+                                       augment=True, seed=args.seed)
+        val_ds = ThermalFrameDataset("val", scaler=scaler, scale=args.scale,
+                                     preset=args.preset)
+    print(f"dataset: {args.dataset}   scaler: {scaler}")
 
     # Architecture comes from the registry, the single source of truth, so a model
     # is trained with exactly the arch it will later be evaluated (and, for RRDB,

@@ -44,3 +44,18 @@ def available_models(specs=MODEL_SPECS):
     from pathlib import Path
     return [name for name, s in specs.items()
             if (Path(s["run"]) / s["checkpoint"]).exists()]
+
+
+def flame3_specs(specs=MODEL_SPECS):
+    """The same architectures, pointing at the FLAME 3 checkpoints.
+
+    Architecture is unchanged, so the two tracks differ only in the data the
+    weights were fitted to. Keeping one source of truth for the architecture
+    is what prevents the train/eval mismatch that bit this project once.
+    """
+    out = {}
+    for name, spec in specs.items():
+        s = dict(spec)
+        s["run"] = spec["run"] + "_flame3"
+        out[name] = s
+    return out
