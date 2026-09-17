@@ -10,8 +10,8 @@ import numpy as np
 import pytest
 
 from tsrf.data.flame3 import (
-    SCALE_MAX_C, SCALE_MIN_C, Flame3Scaler, SUBSETS, counts_to_celsius_xt709,
-    frames, is_nadir, load_celsius, load_kelvin,
+    SCALE_MAX_C, SCALE_MIN_C, Flame3Scaler, SUBSETS, bootstrap_cluster,
+    counts_to_celsius_xt709, frames, is_nadir, load_celsius, load_kelvin,
 )
 from tsrf.data.radiometry import ZERO_CELSIUS_K
 
@@ -147,3 +147,40 @@ def test_declared_range_covers_the_data_it_must():
     for subset in SUBSETS:
         for path in frames(subset)[::150]:
             assert s.clipping_fraction(load_celsius(path)) < 0.001
+
+
+# -------------------------------------------------------- the sampling unit
+
+def test_nadir_frames_cluster_on_the_flight_plot():
+    # Continuous flight video: neighbouring frames are overlapping views of one
+    # burn, so the plot is the unit and the frames inside it are not.
+    assert bootstrap_cluster("data/flame3/nadir/plot1/00007.TIFF") == "plot1"
+    assert bootstrap_cluster("data/flame3/nadir/plot2/00007.TIFF") == "plot2"
+
+
+def test_cv_frames_cluster_individually():
+    # Sparsely sampled pairs, empirically independent; see the docstring of
+    # bootstrap_cluster and scripts/check_flame3_independence.py.
+    assert bootstrap_cluster("data/flame3/cv/fire/00001.TIFF") == "fire/00001"
+
+
+def test_cv_groups_do_not_share_cluster_labels():
+    # Both CV groups number their frames from 00001, so an unqualified stem
+    # would merge 116 unrelated pairs of frames into shared clusters, which is
+    # a dependence the data does not have.
+    assert (bootstrap_cluster("data/flame3/cv/fire/00042.TIFF")
+            != bootstrap_cluster("data/flame3/cv/nofire/00042.TIFF"))
+
+
+def test_every_cv_test_frame_is_its_own_cluster():
+    paths = frames("cv")
+    labels = [bootstrap_cluster(p) for p in paths]
+    assert len(set(labels)) == len(paths)
+
+
+def test_clustering_is_stable_under_path_flavour():
+    # Results files store posix names; the runner passes Path objects. A cluster
+    # label that changed between the two would silently split the bootstrap.
+    from pathlib import Path as P
+    assert (bootstrap_cluster(P("data/flame3/cv/fire/00003.TIFF"))
+            == bootstrap_cluster("data/flame3/cv/fire/00003.TIFF"))

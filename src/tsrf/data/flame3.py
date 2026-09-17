@@ -64,6 +64,41 @@ def is_nadir(path):
     return "nadir" in Path(path).as_posix().lower().split("/")
 
 
+def bootstrap_cluster(path):
+    """The unit of independent sampling a frame belongs to.
+
+    The two subsets are built differently and must not be clustered the same
+    way. The NADIR plots are continuous flight video: neighbouring frames are
+    overlapping views of one burn, so the plot is the unit and frames inside it
+    are not independent observations.
+
+    The CV subset is not video. It is a curated set of frame pairs sampled
+    sparsely across the Sycan Marsh burn, and its frames behave as near
+    independent draws: numerically adjacent frames correlate pixelwise at 0.19
+    on average rather than near unity, the spread of their consecutive mean
+    temperatures, 12.80 K, sits just under the sqrt(2) x 9.31 K independence
+    predicts, implying a lag-1 autocorrelation of 0.06, and both the raw
+    per-frame metrics and the paired differences between models carry
+    integrated autocorrelation times of about one frame
+    (`scripts/check_flame3_independence.py`).
+
+    Clustering that subset on its fire / no-fire partition, as an earlier
+    version of this code did, leaves two clusters. A paired test over two
+    units cannot return a p-value below 0.5 whatever the data say, so every
+    comparison came back at p = 1.00 after correction, including differences
+    that are in fact large, consistent and visible by eye. That is not a
+    conservative choice, it is a wrong one: the partition is a property of the
+    scene content, not of how the frames were sampled.
+    """
+    p = Path(path)
+    if is_nadir(p):
+        return p.parent.name
+    # Qualified by group: the two CV groups number their frames from 00001
+    # independently, so the stem alone would silently merge 116 unrelated
+    # pairs of frames into shared clusters.
+    return f"{p.parent.name}/{p.stem}"
+
+
 def counts_to_celsius_xt709(counts):
     a = np.asarray(counts, dtype=np.float64)
     return a / XT709_COUNTS_PER_DEGREE - XT709_OFFSET_C
@@ -132,3 +167,90 @@ class Flame3Scaler:
 
     def __repr__(self):
         return f"Flame3Scaler(min_c={self.min_c}, max_c={self.max_c})"
+
+
+# --------------------------------------------------------------------- torch
+
+class _Flame3Cached:
+    """Common loading for the packed FLAME 3 splits.
+
+    The ADAS datasets read uint16 counts; these read float32 Celsius, so the
+    detector-noise amplitude is applied directly in Kelvin instead of being
+    divided by a counts-per-Kelvin gain.
+    """
+
+    def __init__(self, split, scaler=None, scale=4, preset="classic",
+                 cache=Path("data/cache")):
+        import json
+        self.cache = Path(cache)
+        meta = json.loads((self.cache / f"{split}_index.json").read_text())
+        if meta["scale"] != scale:
+            raise ValueError(
+                f"cache built at scale {meta['scale']}, asked for {scale}")
+        if meta.get("units") != "celsius":
+            raise ValueError(f"{split}: expected a Celsius cache")
+
+        self.hr = np.load(self.cache / f"{split}_hr_c_f32.npy", mmap_mode="r")
+        self.lr = np.load(self.cache / f"{split}_lr_{preset}_f32.npy", mmap_mode="r")
+        self.scaler = scaler or Flame3Scaler()
+        self.frames = meta["frames"]
+        self.meta = meta
+
+    def __len__(self):
+        return len(self.frames)
+
+
+class Flame3PatchDataset(_Flame3Cached):
+    """Random LR/HR patch pairs for training."""
+
+    def __init__(self, split, scaler=None, patch_lr=48, scale=4,
+                 preset="classic", netd_k=0.0, augment=True,
+                 cache=Path("data/cache")):
+        super().__init__(split, scaler, scale, preset, cache)
+        self.patch_lr = patch_lr
+        self.patch_hr = patch_lr * scale
+        self.scale = scale
+        self.netd_k = netd_k
+        self.augment = augment
+
+        lh, lw = self.meta["lr_shape"]
+        if patch_lr > min(lh, lw):
+            raise ValueError(f"patch_lr {patch_lr} exceeds LR frame {lh}x{lw}")
+        self._max_y, self._max_x = lh - patch_lr, lw - patch_lr
+
+    def __getitem__(self, idx):
+        import torch
+        y = int(torch.randint(0, self._max_y + 1, (1,)).item())
+        x = int(torch.randint(0, self._max_x + 1, (1,)).item())
+        p = self.patch_lr
+
+        lr = np.array(self.lr[idx, y:y + p, x:x + p], dtype=np.float32)
+        hy, hx, hp = y * self.scale, x * self.scale, self.patch_hr
+        hr = np.array(self.hr[idx, hy:hy + hp, hx:hx + hp], dtype=np.float32)
+
+        if self.netd_k > 0:
+            # The cache is already in Kelvin-sized units, so NETD applies as is.
+            lr = lr + torch.randn(lr.shape).numpy() * self.netd_k
+
+        lr = self.scaler.normalize(lr)
+        hr = self.scaler.normalize(hr)
+
+        if self.augment:
+            k = int(torch.randint(0, 4, (1,)).item())
+            if k:
+                lr, hr = np.rot90(lr, k), np.rot90(hr, k)
+            if torch.rand(1).item() < 0.5:
+                lr, hr = np.fliplr(lr), np.fliplr(hr)
+
+        return (torch.from_numpy(np.ascontiguousarray(lr))[None],
+                torch.from_numpy(np.ascontiguousarray(hr))[None])
+
+
+class Flame3FrameDataset(_Flame3Cached):
+    """Whole normalised frames, for validation."""
+
+    def __getitem__(self, idx):
+        import torch
+        lr = self.scaler.normalize(np.array(self.lr[idx], dtype=np.float32))
+        hr = self.scaler.normalize(np.array(self.hr[idx], dtype=np.float32))
+        return torch.from_numpy(lr)[None], torch.from_numpy(hr)[None]

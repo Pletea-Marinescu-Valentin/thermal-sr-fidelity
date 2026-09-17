@@ -31,17 +31,26 @@ def bicubic_upsampler(scale=4):
 
 
 def evaluate_frame(hr_counts, model, scaler, scale=4, preset="classic",
-                   deltas_k=(5.0, 10.0, 20.0), rng=None):
-    lr = degrade(hr_counts, scale=scale, preset=preset, rng=rng)
+                   deltas_k=(5.0, 10.0, 20.0), rng=None, to_kelvin=None,
+                   k_per_count=None):
+    """Score one reconstruction against its reference.
+
+    `to_kelvin` converts whatever the dataset stores into Kelvin: sensor counts
+    on ADAS, degrees Celsius on FLAME 3. Every metric below reads temperature,
+    so this is the only place the two datasets differ.
+    """
+    to_kelvin = to_kelvin or raw_to_kelvin
+    extra = {} if k_per_count is None else {"k_per_count": k_per_count}
+    lr = degrade(hr_counts, scale=scale, preset=preset, rng=rng, **extra)
     sr = np.asarray(model(lr), dtype=np.float64)
     if sr.shape != hr_counts.shape:
         raise ValueError(f"model returned {sr.shape}, expected {hr_counts.shape}")
 
-    t_gt = raw_to_kelvin(hr_counts)
-    t_sr = raw_to_kelvin(sr)
+    t_gt = to_kelvin(hr_counts)
+    t_sr = to_kelvin(sr)
     # The LR observed at HR scale, used as the plausibility reference for M2.
     from ..data.degradation import imresize_bicubic
-    t_lr_up = raw_to_kelvin(imresize_bicubic(lr, scale))
+    t_lr_up = to_kelvin(imresize_bicubic(lr, scale))
 
     rec = {}
     rec.update({f"m0_{k}": v for k, v in radiometric_error(t_sr, t_gt).items()})
@@ -99,3 +108,54 @@ def aggregate(records, videos, keys=None, n_boot=2000):
         vals = [r.get(k, np.nan) for r in records]
         out[k] = cluster_bootstrap_ci(vals, videos, n_boot=n_boot)
     return out
+
+
+def evaluate_split_flame3(model, split="f3test", scale=4, preset="classic",
+                          limit=None, seed=1337, scaler=None,
+                          progress_every=100):
+    """Run the protocol over a FLAME 3 split.
+
+    Differs from `evaluate_split` in three ways, all of them dataset
+    properties rather than choices: frames are read from disk as Celsius
+    rather than counts, the conversion to Kelvin is the Celsius definition,
+    and the bootstrap cluster follows how each subset was sampled rather than
+    what it contains.
+    """
+    from ..data.flame3 import Flame3Scaler, bootstrap_cluster
+    from ..data.flame3 import frames as flame3_frames
+    from ..data.flame3 import load_celsius
+    from ..data.radiometry import ZERO_CELSIUS_K
+
+    subset, group = {"f3train": ("nadir", "plot2"),
+                     "f3val": ("nadir", "plot1"),
+                     "f3test": ("cv", None)}[split]
+    scaler = scaler or Flame3Scaler()
+    paths = flame3_frames(subset, group)
+    if limit:
+        paths = paths[:limit]
+    if not paths:
+        raise FileNotFoundError(
+            f"{split}: no frames; run scripts/extract_flame3.py first")
+
+    def to_kelvin(celsius):
+        return np.asarray(celsius, dtype=np.float64) + ZERO_CELSIUS_K
+
+    records, names, clusters = [], [], []
+    for i, path in enumerate(paths, 1):
+        c = load_celsius(path)
+        digest = hashlib.blake2b(f"{seed}:{path.name}".encode(),
+                                 digest_size=4).digest()
+        rng = np.random.default_rng(int.from_bytes(digest, "big"))
+        # The rasters are Celsius, so the sensor NETD applies as a temperature
+        # with no counts-per-Kelvin conversion.
+        records.append(evaluate_frame(c, model, scaler, scale, preset,
+                                      rng=rng, to_kelvin=to_kelvin,
+                                      k_per_count=1.0))
+        names.append(path.as_posix())
+        # The sampling unit differs between the subsets: a flight plot for the
+        # NADIR video, an individual frame for the sparsely sampled CV pairs.
+        # See `flame3.bootstrap_cluster` for the measurements behind that.
+        clusters.append(bootstrap_cluster(path))
+        if progress_every and i % progress_every == 0:
+            print(f"    {i}/{len(paths)}")
+    return records, names, clusters
