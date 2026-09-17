@@ -7,7 +7,10 @@ Thermal super-resolution is normally evaluated with PSNR, SSIM and LPIPS, none o
 which measures whether a reconstruction preserves the physical quantity a thermal
 image encodes. This repository implements a deterministic protocol of eight fidelity
 metrics defined on radiometric data and expressed in Kelvin, together with the
-training and evaluation pipeline used to compare five reconstruction methods.
+training and evaluation pipeline used to compare five reconstruction methods on two
+independent radiometric datasets recorded by three cameras: 1144 automotive frames
+from a FLIR Tau 2, and 738 airborne wildfire frames from a DJI M30T reconstructed by
+models trained on an Autel XT709.
 
 ## Metric suite (`src/tsrf/metrics/`)
 
@@ -59,8 +62,21 @@ Neither dataset is redistributed here.
   licence agreement, which permits research use and publication but not
   redistribution. The 16-bit T-linear TIFFs in `analyticsData/` are the radiometric
   measurements this study uses; apparent temperature is `raw * 0.04` K.
+- **FLAME 3** (second radiometric dataset). Airborne wildfire imagery from two
+  cameras. The NADIR plots (Autel XT709) are the training and validation split and
+  ship integer rasters whose scale is recovered empirically, `counts/10 - 275.0` in
+  Celsius; the CV subset (DJI M30T) is the test split and ships float32 Celsius
+  directly. Testing therefore crosses instruments by construction. Obtain from
+  IEEE DataPort.
 - **FLIR-IISR** (secondary, real cross-sensor degradation, 8-bit). Used only for the
   stress test in Section V-C; no claims in Kelvin are made from it.
+
+The two radiometric datasets differ in the sampling unit, which sets how the
+bootstrap and the paired tests cluster. ADAS frames come from continuous video, so
+the video is the unit. The FLAME 3 CV subset is not video but a sparse set of frame
+pairs, and its frames are empirically independent, so the frame is the unit;
+`scripts/check_flame3_independence.py` reports the three measurements behind that,
+and `tsrf.data.flame3.bootstrap_cluster` is the single place the rule lives.
 
 ## Setup
 
@@ -101,12 +117,29 @@ python scripts/eval_ablation.py --run runs/edsr_tex_x4_classic   # texture-loss 
 python scripts/make_paper_tables.py             # LaTeX tables from results/*.json
 python scripts/make_report.py                   # assembles results/REPORT.md
 python scripts/check_tex_escapes.py             # guards against eaten LaTeX backslashes
+python scripts/check_paper_numbers.py           # every number quoted in the prose
 python scripts/make_protocol_figure.py          # Fig. 1, the protocol end to end
 python scripts/make_overleaf_zip.py             # bundles paper/ into overleaf.zip
 ```
 
-The last four write into `paper/`, which is not part of this repository (see
-below), so they are useful only alongside a local copy of the manuscript.
+For the second dataset:
+
+```bash
+python scripts/extract_flame3.py CVSubset.zip NADIRPlots.zip
+python scripts/validate_flame3_scale.py         # recovers the XT709 offset, 275.0
+python scripts/check_flame3_independence.py     # is the CV subset a video? no
+python scripts/pack_flame3.py
+bash   scripts/pipeline_flame3.sh               # train and evaluate the five arms
+python scripts/eval_flame3.py --preset classic  # re-aggregates from cached records
+python scripts/positive_control.py --dataset flame3
+```
+
+`eval_flame3.py` reuses cached per-frame records and rederives the clusters from
+the frame paths, so a correction to the sampling-unit rule re-scores every model
+without re-running any of them.
+
+The paper-facing scripts write into `paper/`, which is not part of this repository
+(see below), so they are useful only alongside a local copy of the manuscript.
 
 Splits are fixed and committed (`configs/splits.json`, `configs/scaler.json`), so
 evaluation runs on exactly the frames reported in the paper.

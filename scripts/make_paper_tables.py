@@ -63,13 +63,25 @@ def best_cells(values, direction, fmt):
     that a reader sees as identical must be bolded identically, otherwise the
     table appears to rank 0.9953 above 0.9953.
     """
+    if direction is None:
+        # Some rows have no single best cell because they are only meaningful
+        # in pairs: M7's amplitude and correspondence trade off against each
+        # other, and the blurriest reconstruction can hold the highest
+        # correspondence precisely because it adds nothing. Bolding one of them
+        # would assert a ranking the metric does not support.
+        return set()
     shown = [float(fmt.format(v)) for v in values]
     if direction == "high":
         target = max(shown)
     elif direction == "low":
         target = min(shown)
     else:
-        target = min(shown, key=lambda v: abs(v - 1.0))
+        # "one" for ratios, "zero" for differences such as M6's delta. Both are
+        # two-sided: overshoot and undershoot are equally wrong, which is the
+        # whole point of those metrics and must not be bolded as if larger were
+        # better.
+        ideal = 0.0 if direction == "zero" else 1.0
+        target = min(shown, key=lambda v: abs(v - ideal))
     return {i for i, v in enumerate(shown) if v == target}
 
 
@@ -377,6 +389,95 @@ def write_ablation_table():
         print(f"  {label[:26]:28s}{vals}")
 
 
+OUT_FLAME3 = Path("paper/table_flame3.tex")
+
+#: The FLAME 3 table carries the metrics the paper's claims rest on, not every
+#: metric. The full sweep lives in results/f3_comparison_*.md.
+F3_ROWS = [
+    ("std_lpips",          "LPIPS " + DOWN,                   "{:.4f}", "low"),
+    (None, None, None, None),
+    ("m0_rmse_k",          "M0 RMSE (K) " + DOWN,             "{:.3f}", "low"),
+    ("m1_d10_mask_iou",    "M1 IoU@10K " + UP,                "{:.3f}", "high"),
+    ("m2_d10_n_hallucinated",
+     "M2 hallucinated / frame " + DOWN,                       "{:.3f}", "low"),
+    ("m3_spearman_rho",    r"M3 ordering $\rho_s$ " + UP,     "{:.3f}", "high"),
+    ("m4_texture_ratio",   "M4 texture ratio " + TO1,         "{:.3f}", "one"),
+    ("m5_gradient_ratio",  "M5 gradient ratio " + TO1,        "{:.3f}", "one"),
+    (None, None, None, None),
+    ("m6_flat_delta_hurst", r"M6 $\Delta\hat{H}$ $\rightarrow 0$", "{:+.3f}", None),
+    ("m7_flat_hf_amp_ratio", r"M7 amplitude $a$ " + TO1,      "{:.3f}", None),
+    ("m7_flat_hf_corr",    r"M7 correspondence $r$ " + UP,    "{:.3f}", None),
+]
+
+
+def load_f3(preset, models):
+    return {m: json.loads(
+        (RESULTS / f"f3_{m}_{preset}.json").read_text())["aggregate"]
+        for m in models}
+
+
+def write_flame3_table(models):
+    aggs = {p: load_f3(p, models) for p in ("classic", "realistic")}
+    meta = json.loads((RESULTS / f"f3_{models[0]}_classic.json").read_text())
+    n, head = len(models), " & ".join(SHORT.get(m, m) for m in models)
+
+    lines = [
+        r"\begin{table*}[t]", r"\centering",
+        r"\caption{The same protocol at $\times 4$ on FLAME 3 "
+        f"({meta['n_frames']} frames). "
+        r"Training used the Autel XT709 plots and testing uses the DJI M30T "
+        r"subset, so every column is also a cross-instrument transfer. The "
+        r"adversarial model again wins LPIPS, again loses radiometric accuracy, "
+        r"again emits the most texture and again carries the least of the "
+        r"measured signal. Best value per row and degradation in bold; the "
+        r"texture block is left unbolded because $a$ and $r$ rank "
+        r"reconstructions only when read together.}",
+        r"\label{tab:flame3}",
+        r"\setlength{\tabcolsep}{4.5pt}",
+        r"\begin{tabular}{l " + "c" * n + " c " + "c" * n + "}",
+        r"\toprule",
+        r"& \multicolumn{" + str(n) + r"}{c}{\textbf{Classic degradation}} & & "
+        r"\multicolumn{" + str(n) + r"}{c}{\textbf{Realistic degradation}} \\",
+        r"\cmidrule{2-" + str(n + 1) + r"} \cmidrule{" + str(n + 3) + "-"
+        + str(2 * n + 2) + "}",
+        f"Metric & {head} & & {head} " + r"\\",
+        r"\midrule",
+    ]
+    for key, label, fmt, direction in F3_ROWS:
+        if key is None:
+            lines.append(r"\midrule")
+            continue
+        blocks = []
+        for preset in ("classic", "realistic"):
+            vals = [aggs[preset][m][key]["mean"] for m in models]
+            best = best_cells(vals, direction, fmt)
+            blocks.append([(r"\textbf{" + fmt.format(v) + "}") if i in best
+                           else fmt.format(v) for i, v in enumerate(vals)])
+        lines.append(f"{label} & " + " & ".join(blocks[0]) + " & & "
+                     + " & ".join(blocks[1]) + r" \\")
+    lines += [r"\bottomrule", r"\end{tabular}", r"\end{table*}"]
+    OUT_FLAME3.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    print(f"wrote {OUT_FLAME3}")
+
+    print("\n--- FLAME 3, for the prose (classic) ---")
+    a = aggs["classic"]
+    for m in models:
+        d = a[m]
+        print(f"  {SHORT.get(m, m):8s} "
+              f"LPIPS={d['std_lpips']['mean']:.4f}  "
+              f"M0={d['m0_rmse_k']['mean']:.3f}  "
+              f"M4={d['m4_texture_ratio']['mean']:.3f}  "
+              f"dH={d['m6_flat_delta_hurst']['mean']:+.3f} "
+              f"[{d['m6_flat_delta_hurst']['lo']:+.3f}, "
+              f"{d['m6_flat_delta_hurst']['hi']:+.3f}]  "
+              f"a={d['m7_flat_hf_amp_ratio']['mean']:.3f}  "
+              f"r={d['m7_flat_hf_corr']['mean']:.3f} "
+              f"[{d['m7_flat_hf_corr']['lo']:.3f}, {d['m7_flat_hf_corr']['hi']:.3f}]")
+    ref = a[models[0]]
+    print(f"  reference H={ref['m6_flat_hurst_gt']['mean']:.3f}  "
+          f"sigma_w3={ref['m6_flat_ladder_gt_k']['mean'] if 'm6_flat_ladder_gt_k' in ref else float('nan')}")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--preset", default="classic")
@@ -395,6 +496,13 @@ def main():
         write_control_table()
         write_iisr_table()
         write_sensitivity_table()
+        f3 = [m for m in DISPLAY_ORDER
+              if (RESULTS / f"f3_{m}_classic.json").exists()
+              and (RESULTS / f"f3_{m}_realistic.json").exists()]
+        if len(f3) > 1:
+            write_flame3_table(f3)
+        else:
+            print("skipping FLAME 3 table: need both presets for >1 model")
 
 
 if __name__ == "__main__":
