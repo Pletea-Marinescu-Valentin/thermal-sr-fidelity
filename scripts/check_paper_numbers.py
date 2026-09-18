@@ -61,6 +61,26 @@ def controlled_effects(preset="classic"):
                              clusters=clusters) for k in CONTROLLED_KEYS}
 
 
+def _m2():
+    return json.loads((RESULTS / "m2_sensitivity.json").read_text())
+
+
+def m2(model, axis, value):
+    """Hallucinated regions per frame at one point of the threshold sweep."""
+    return _m2()["hallucinated_per_frame"][f"{model}|{axis}|{value}"]
+
+
+def m2_worst(exclude):
+    """The largest rate over every axis but one.
+
+    The paper claims three of the four thresholds leave the negative result
+    untouched and names the worst case; this is that worst case, so the claim
+    cannot quietly become false if a sweep point changes.
+    """
+    return max(v for k, v in _m2()["hallucinated_per_frame"].items()
+               if k.split("|")[1] != exclude)
+
+
 def ceiling(dataset, field, radius=2):
     """The attainable-correspondence ceiling, from scripts/m7_ceiling.py."""
     suffix = "" if radius == 2 else f"_r{radius}"
@@ -199,6 +219,12 @@ def claims():
          control("f3_", "fabricated_local", "m4_texture_ratio"), 5e-4),
         ("FLAME 3 control fabricated r", 0.012,
          control("f3_", "fabricated_local", "m7_flat_hf_corr"), 5e-4),
+
+        # -- Results: robustness of the negative result on discrete hallucination
+        ("M2 worst rate over the three inert axes", 0.015,
+         m2_worst(exclude="lr_relax"), 5e-4),
+        ("M2 EDSR at lambda = 1", 0.280, m2("edsr_lite", "lr_relax", 1.0), 5e-4),
+        ("M2 ESRGAN at lambda = 1", 0.275, m2("esrgan", "lr_relax", 1.0), 5e-4),
 
         # -- Results: the attainable-correspondence ceiling
         ("ADAS linear ceiling r", 0.173, ceiling("", "corr"), 5e-4),
