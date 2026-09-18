@@ -88,7 +88,11 @@ def main():
     agg = aggregate(records, videos)
     RESULTS.mkdir(exist_ok=True)
     (RESULTS / f"{prefix}{tag}_{args.preset}_per_frame.json").write_text(
-        json.dumps({"names": names, "videos": videos, "records": records}, indent=1))
+        # The key names the sampling unit, which differs between the tracks and
+        # is what every other per-frame file in results/ calls it.
+        json.dumps({"names": names, "records": records,
+                    ("clusters" if args.dataset == "flame3" else "videos"): videos},
+                   indent=1))
 
     # Compare against the same architecture trained with L1 alone: the only
     # difference between the two arms is the objective.

@@ -72,7 +72,10 @@ def main():
     n_f3 = data["f3_"][0]["std_lpips"]["n_clusters"]
 
     lines = [
-        r"\begin{table}[t]", r"\centering",
+        # Full width: each cell carries an estimate and its interval, so five
+        # columns of them overrun a single IEEEtran column by about 93 pt and
+        # print over the neighbouring text.
+        r"\begin{table*}[t]", r"\centering",
         r"\caption{The controlled comparison: ESRGAN minus the RRDB it was "
         r"fine-tuned from, so the training objective is the only difference "
         r"between the arms. Each cell is the paired difference with its "
@@ -99,7 +102,7 @@ def main():
                          + fmt.format(e["lo"]) + ", " + fmt.format(e["hi"]) + "]$")
             cells.append(f"${e['sign_consistency']:.2f}$")
         lines.append(f"{label} & " + " & ".join(cells) + r" \\")
-    lines += [r"\bottomrule", r"\end{tabular}", r"\end{table}"]
+    lines += [r"\bottomrule", r"\end{tabular}", r"\end{table*}"]
     OUT.write_text("\n".join(lines) + "\n", encoding="utf-8")
     print(f"wrote {OUT}")
 
