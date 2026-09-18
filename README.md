@@ -43,6 +43,8 @@ construction, rather than only applied to model outputs:
 python scripts/positive_control.py     # phase-randomised surrogates
 python scripts/make_robustness.py      # threshold sweep, per-frame separability
 python scripts/make_sensitivity.py     # M6/M7 against their own design choices
+python scripts/m2_sensitivity.py       # M2 against its four thresholds, not just delta
+python scripts/m7_ceiling.py           # how much correspondence is attainable at all
 ```
 
 `positive_control.py` builds predictions that keep the reference's
@@ -52,8 +54,19 @@ surrogate preserves the power spectrum exactly, so M4 and M6 rank it as the
 more faithful reconstruction and only M7 rejects it; the trained models land on
 these controls. `make_sensitivity.py` sweeps the window ladder and the flat-set
 definition, and resolves M7 by scale to locate the point below which no method
-recovers the measurement. Outputs are `results/positive_control.json`,
-`robustness.json` and `sensitivity.json`.
+recovers the measurement.
+
+`m2_sensitivity.py` answers whether the negative result on discrete hallucination
+is a property of the models or of M2's thresholds: three of the four leave it at
+zero, and the fourth only raises it by mislabelling attenuated real regions as
+invented. `m7_ceiling.py` fits the optimal shift-invariant linear predictor of the
+reference fine texture from the same input, which is what turns M7 from a purely
+comparative score into one with a calibrated reference point: the attainable pair
+is about (0.20, 0.18), not (1, 1), so a model emitting the reference's full
+fine-texture amplitude is emitting structure its input cannot account for.
+
+Outputs are `results/positive_control.json`, `robustness.json`, `sensitivity.json`,
+`m2_sensitivity.json` and `m7_ceiling.json`.
 
 ## Data
 
