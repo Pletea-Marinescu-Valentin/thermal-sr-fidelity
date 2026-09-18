@@ -169,11 +169,23 @@ def main():
     for key, label, colour, marker in PANEL:
         ax2.scatter(amps[key], corrs[key], color=colour, marker=marker, s=55,
                     zorder=4, label=label)
-    ax2.scatter([1.0], [1.0], color="k", marker="*", s=120, zorder=5)
-    ax2.annotate("faithful", (1.0, 1.0), textcoords="offset points",
-                 xytext=(-6, -13), fontsize=7.5, ha="right")
-    ax2.annotate("over-smoothed", (0.29, 0.20), textcoords="offset points",
-                 xytext=(6, 9), fontsize=7.5)
+    ax2.scatter([1.0], [1.0], color="0.6", marker="*", s=120, zorder=5)
+    ax2.annotate("exact copy\n(not attainable at $\\times 4$)", (1.0, 1.0),
+                 textcoords="offset points", xytext=(-8, -8), fontsize=7,
+                 ha="right", va="top", color="0.45")
+    # The point a reconstruction can actually reach: most of this band is not
+    # in the input, so the target is the ceiling, not the reference itself.
+    ceiling = json.loads((RESULTS / "m7_ceiling.json").read_text())
+    cx, cy = ceiling["linear_ceiling_amp"], ceiling["linear_ceiling_corr"]
+    ax2.scatter([cx], [cy], color="k", marker="*", s=130, zorder=6)
+    ax2.annotate("attainable\n(best linear)", (cx, cy),
+                 textcoords="offset points", xytext=(62, -22), fontsize=7,
+                 ha="center", arrowprops=dict(arrowstyle="-", color="0.5",
+                                              lw=0.7, shrinkB=6))
+    ax2.annotate("over-smoothed", (0.30, 0.17), textcoords="offset points",
+                 xytext=(26, 26), fontsize=7.5, ha="center",
+                 arrowprops=dict(arrowstyle="-", color="0.5", lw=0.7,
+                                 shrinkB=6))
     ax2.annotate("fabricated", (1.141, 0.039), textcoords="offset points",
                  xytext=(-8, 8), fontsize=7.5, ha="right")
     ax2.set_xlabel(r"texture amplitude ratio  (M7)")

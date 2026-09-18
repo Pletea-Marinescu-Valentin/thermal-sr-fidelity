@@ -1,0 +1,9 @@
+{
+ "dataset": "flame3",
+ "n_frames": 193,
+ "radius": 2,
+ "window": 7,
+ "linear_ceiling_corr": 0.19738350923220052,
+ "linear_ceiling_corr_sd": 0.08602448043080368,
+ "linear_ceiling_amp": 0.21170295937488753
+}

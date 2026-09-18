@@ -61,6 +61,25 @@ def controlled_effects(preset="classic"):
                              clusters=clusters) for k in CONTROLLED_KEYS}
 
 
+def ceiling(dataset, field, radius=2):
+    """The attainable-correspondence ceiling, from scripts/m7_ceiling.py."""
+    suffix = "" if radius == 2 else f"_r{radius}"
+    path = RESULTS / f"{dataset}m7_ceiling{suffix}.json"
+    return json.loads(path.read_text())[f"linear_ceiling_{field}"]
+
+
+def first_n(dataset, model, key, n=200):
+    """A model's mean over the first n test frames.
+
+    The ceiling is fitted and scored on those frames, so anything compared
+    against it has to be measured on them too; the full-split mean is a
+    different quantity and mixing the two would not be a comparison.
+    """
+    path = RESULTS / f"{dataset}{model}_classic_per_frame.json"
+    records = json.loads(path.read_text())["records"][:n]
+    return float(np.nanmean([r.get(key, np.nan) for r in records]))
+
+
 def control(dataset, arm, key):
     d = json.loads((RESULTS / f"{dataset}positive_control.json").read_text())
     v = d["aggregate"][arm][key]
@@ -180,6 +199,26 @@ def claims():
          control("f3_", "fabricated_local", "m4_texture_ratio"), 5e-4),
         ("FLAME 3 control fabricated r", 0.012,
          control("f3_", "fabricated_local", "m7_flat_hf_corr"), 5e-4),
+
+        # -- Results: the attainable-correspondence ceiling
+        ("ADAS linear ceiling r", 0.173, ceiling("", "corr"), 5e-4),
+        ("ADAS linear ceiling amplitude", 0.196, ceiling("", "amp"), 5e-4),
+        ("FLAME 3 linear ceiling r", 0.197, ceiling("f3_", "corr"), 5e-4),
+        ("FLAME 3 linear ceiling amplitude", 0.212, ceiling("f3_", "amp"), 5e-4),
+        ("ceiling shift from 3x3 to 5x5 support", 0.007,
+         ceiling("", "corr") - ceiling("", "corr", radius=1), 5e-4),
+        # The comparisons are over the same 200 frames the ceiling is fitted on,
+        # not the full split, or the numbers would not be commensurable.
+        ("ADAS regressors on the ceiling frames", 0.201,
+         first_n("", "rrdb", "m7_flat_hf_corr"), 5e-4),
+        ("ADAS ESRGAN amplitude on those frames", 1.077,
+         first_n("", "esrgan", "m7_flat_hf_amp_ratio"), 5e-4),
+        ("ADAS ESRGAN amplitude over ceiling", 5.5,
+         first_n("", "esrgan", "m7_flat_hf_amp_ratio") / ceiling("", "amp"), 5e-2),
+        ("FLAME 3 bicubic on the ceiling frames", 0.195,
+         first_n("f3_", "bicubic", "m7_flat_hf_corr"), 5e-4),
+        ("FLAME 3 ESRGAN on the ceiling frames", 0.109,
+         first_n("f3_", "esrgan", "m7_flat_hf_corr"), 5e-4),
 
         # -- Setup: sample sizes
         ("ADAS test frames", 1144, meta("", "classic", "bicubic", "n_frames"), 0),

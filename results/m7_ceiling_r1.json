@@ -1,0 +1,9 @@
+{
+ "dataset": "adas",
+ "n_frames": 200,
+ "radius": 1,
+ "window": 7,
+ "linear_ceiling_corr": 0.16638323136602637,
+ "linear_ceiling_corr_sd": 0.02658547430498805,
+ "linear_ceiling_amp": 0.19035134099234916
+}

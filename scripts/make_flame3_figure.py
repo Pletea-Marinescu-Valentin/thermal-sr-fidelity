@@ -205,9 +205,21 @@ def main():
             ax2.scatter(cx, cy, marker=mark, s=46, zorder=5, color="0.45",
                         alpha=0.9 if filled else 0.45)
 
-    ax2.scatter([1.0], [1.0], color="k", marker="*", s=110, zorder=6)
-    ax2.annotate("faithful", (1.0, 1.0), textcoords="offset points",
-                 xytext=(-8, -4), fontsize=7.5, ha="right", va="center")
+    ax2.scatter([1.0], [1.0], color="0.6", marker="*", s=110, zorder=6)
+    ax2.annotate("exact copy", (1.0, 1.0), textcoords="offset points",
+                 xytext=(-8, -4), fontsize=7, ha="right", va="center",
+                 color="0.45")
+    # Most of this band is not in the input, so the reachable target is the
+    # ceiling of Section V-H, not the reference itself.
+    for tag, prefix, filled in (("adas", "", False), ("flame3", "f3_", True)):
+        c = json.loads((RESULTS / f"{prefix}m7_ceiling.json").read_text())
+        ax2.scatter([c["linear_ceiling_amp"]], [c["linear_ceiling_corr"]],
+                    marker="*", s=120, zorder=7, color="k" if filled else "none",
+                    edgecolor="k", linewidths=1.2)
+    ax2.annotate("attainable\n(best linear)", (0.20, 0.19),
+                 textcoords="offset points", xytext=(6, 46), fontsize=7,
+                 ha="center", arrowprops=dict(arrowstyle="-", color="0.5",
+                                              lw=0.7, shrinkB=5))
     ax2.annotate("attenuation controls", (0.36, 0.88),
                  textcoords="offset points", xytext=(11, 2), fontsize=7,
                  color="0.35", va="center")
