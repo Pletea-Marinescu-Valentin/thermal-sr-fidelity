@@ -61,6 +61,11 @@ def controlled_effects(preset="classic"):
                              clusters=clusters) for k in CONTROLLED_KEYS}
 
 
+def abl(stem, key):
+    """One aggregate field of an ablation arm, keyed by its run stem."""
+    return json.loads((RESULTS / f"{stem}.json").read_text())["aggregate"][key]["mean"]
+
+
 def _m2():
     return json.loads((RESULTS / "m2_sensitivity.json").read_text())
 
@@ -219,6 +224,31 @@ def claims():
          control("f3_", "fabricated_local", "m4_texture_ratio"), 5e-4),
         ("FLAME 3 control fabricated r", 0.012,
          control("f3_", "fabricated_local", "m7_flat_hf_corr"), 5e-4),
+
+        # -- Results: the texture-objective ablation on ADAS. The run named
+        # edsr_tex2 carries lambda = 2e-3 and edsr_tex carries 5e-3, which is
+        # the opposite of what the names suggest, so the mapping is asserted
+        # here rather than trusted.
+        ("ablation L1 dHurst", 0.744, abl("edsr_lite_classic", "m6_flat_delta_hurst"), 5e-4),
+        ("ablation lambda=2e-3 dHurst", -0.121,
+         abl("edsr_tex2_x4_classic", "m6_flat_delta_hurst"), 5e-4),
+        ("ablation lambda=5e-3 dHurst", -0.142,
+         abl("edsr_tex_x4_classic", "m6_flat_delta_hurst"), 5e-4),
+        ("ablation L1 amplitude", 0.279,
+         abl("edsr_lite_classic", "m7_flat_hf_amp_ratio"), 5e-4),
+        ("ablation lambda=2e-3 amplitude", 1.811,
+         abl("edsr_tex2_x4_classic", "m7_flat_hf_amp_ratio"), 5e-4),
+        ("ablation lambda=5e-3 amplitude", 1.683,
+         abl("edsr_tex_x4_classic", "m7_flat_hf_amp_ratio"), 5e-4),
+        ("ablation L1 correspondence", 0.173,
+         abl("edsr_lite_classic", "m7_flat_hf_corr"), 5e-4),
+        ("ablation lambda=2e-3 correspondence", 0.030,
+         abl("edsr_tex2_x4_classic", "m7_flat_hf_corr"), 5e-4),
+        ("ablation lambda=5e-3 correspondence", 0.032,
+         abl("edsr_tex_x4_classic", "m7_flat_hf_corr"), 5e-4),
+        ("ablation L1 M0 (K)", 0.474, abl("edsr_lite_classic", "m0_rmse_k"), 5e-4),
+        ("ablation lambda=5e-3 M0 (K)", 0.538,
+         abl("edsr_tex_x4_classic", "m0_rmse_k"), 5e-4),
 
         # -- Results: robustness of the negative result on discrete hallucination
         ("M2 worst rate over the three inert axes", 0.015,
