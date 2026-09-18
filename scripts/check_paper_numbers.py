@@ -290,6 +290,10 @@ def claims():
         ("M2 ESRGAN at lambda = 1", 0.275, m2("esrgan", "lr_relax", 1.0), 5e-4),
 
         # -- Results: the attainable-correspondence ceiling
+        # Quoted to three decimals as the attainable corner of the (a, r)
+        # plane, so the tolerance is tighter than for a rounded summary: an
+        # earlier revision printed "roughly (0.20, 0.18)", which is neither
+        # dataset's value.
         ("ADAS linear ceiling r", 0.173, ceiling("", "corr"), 5e-4),
         ("ADAS linear ceiling amplitude", 0.196, ceiling("", "amp"), 5e-4),
         ("FLAME 3 linear ceiling r", 0.197, ceiling("f3_", "corr"), 5e-4),

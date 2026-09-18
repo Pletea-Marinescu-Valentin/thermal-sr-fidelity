@@ -34,6 +34,14 @@ variation scales with distance, and M7 whether it corresponds to what the
 sensor recorded. A model can match the first two while failing the third, which
 is what an adversarial model does here.
 
+M7 is a pair, `(a, r)`, and neither coordinate ranks reconstructions on its own:
+the blurriest one can hold the highest correspondence precisely because it adds
+nothing. The pair is also not aimed at `(1, 1)`. A x4 decimation removes most of
+the band this window measures, so the reachable target is the ceiling measured by
+`scripts/m7_ceiling.py`: `(0.196, 0.173)` on ADAS and `(0.212, 0.197)` on FLAME 3.
+Read against that point, an amplitude near 1 is not a model approaching fidelity
+but one emitting several times the fine structure its input can account for.
+
 ## Protocol validation
 
 The metrics are checked against references whose answer is known by
@@ -61,16 +69,18 @@ is a property of the models or of M2's thresholds: three of the four leave it at
 zero, and the fourth only raises it by mislabelling attenuated real regions as
 invented. `m7_ceiling.py` fits the optimal shift-invariant linear predictor of the
 reference fine texture from the same input, which is what turns M7 from a purely
-comparative score into one with a calibrated reference point: the attainable pair
-is about (0.20, 0.18), not (1, 1), so a model emitting the reference's full
-fine-texture amplitude is emitting structure its input cannot account for.
+comparative score into one with a calibrated reference point, as described above.
+It is a ceiling over shift-invariant linear filters only, so a spatially adaptive
+model can exceed it, and the L1 regressors do; that is the useful reading, since
+falling well below it is then not explained by the information gap.
 
 Outputs are `results/positive_control.json`, `robustness.json`, `sensitivity.json`,
-`m2_sensitivity.json` and `m7_ceiling.json`.
+`m2_sensitivity.json` and `m7_ceiling.json`, plus the `f3_` counterparts of the
+last two checks, which run on both datasets.
 
 ## Data
 
-Neither dataset is redistributed here.
+None of the three datasets is redistributed here.
 
 - **FLIR ADAS v2** (primary, radiometric). Obtain from Teledyne FLIR under its image
   licence agreement, which permits research use and publication but not
@@ -85,12 +95,32 @@ Neither dataset is redistributed here.
 - **FLIR-IISR** (secondary, real cross-sensor degradation, 8-bit). Used only for the
   stress test in Section V-C; no claims in Kelvin are made from it.
 
-The two radiometric datasets differ in the sampling unit, which sets how the
-bootstrap and the paired tests cluster. ADAS frames come from continuous video, so
-the video is the unit. The FLAME 3 CV subset is not video but a sparse set of frame
-pairs, and its frames are empirically independent, so the frame is the unit;
-`scripts/check_flame3_independence.py` reports the three measurements behind that,
-and `tsrf.data.flame3.bootstrap_cluster` is the single place the rule lives.
+## Statistics (`src/tsrf/stats/`)
+
+**The sampling unit differs between the datasets**, and it sets how the bootstrap
+resamples and how the paired tests pair. ADAS frames come from continuous video, so
+the video is the unit, 17 in the test split. The FLAME 3 CV subset is not video but a
+sparse set of frame pairs, empirically independent, so the frame is the unit, 738 of
+them; `scripts/check_flame3_independence.py` reports the three measurements behind
+that, and `tsrf.data.flame3.bootstrap_cluster` is the single place the rule lives.
+This is not a cosmetic choice: clustering FLAME 3 on its fire / no-fire partition
+leaves two units, and a paired test over two units cannot return p below 0.5
+whatever the data contain, so every comparison came back at p = 1.00 for effects
+that are in fact large and consistent.
+
+**Effect sizes carry the claims, not p-values.** Beyond about 25 pairs the
+signed-rank test switches to a normal approximation, and on the 738-unit split that
+produces nominal values near 1e-112, a 22-sigma extrapolation rather than a
+measurement. `paired_effect` therefore reports the paired difference, a bootstrap
+interval for that same statistic, and `sign_consistency`, the share of units on
+which the difference keeps its sign. The last is what distinguishes a shift present
+on almost every frame from an identical average produced by a handful of outliers,
+which no p-value can. Significance is reported as a bound, `p_adj < 1e-4`.
+
+**Undefined tests stay undefined.** A comparison between two arms that differ on no
+unit at all has no p-value; `holm_bonferroni` keeps such entries as NaN and excludes
+them from the multiplicity count, rather than ranking them among the tests that were
+performed, where the step-down loop would hand them the running maximum.
 
 ## Setup
 
@@ -119,15 +149,21 @@ and the report; the cross-sensor track, the protocol validation above and the
 paper artefacts are run separately. Individual stages:
 
 ```bash
+python scripts/verify_datasets.py               # archives present and readable
 python scripts/train.py edsr_lite --steps 100000 --resume
+python scripts/train_gan.py --pretrained runs/rrdb_x4_classic/best.pt \
+    --steps 50000 --batch 8 --patch 32 --resume   # ESRGAN, from the converged RRDB
 python scripts/eval_all.py --preset classic     # + paired significance tests
 python scripts/eval_iisr.py --model esrgan      # cross-sensor stress test
 python scripts/make_figures.py                  # qualitative overlays
+python scripts/make_texture_figure.py           # Fig. 2, a flat region close up
 python scripts/make_scaling_figure.py           # M6/M7 ladder and plane
 python scripts/positive_control.py              # constructed references (protocol check)
 python scripts/make_robustness.py               # threshold sweep + per-frame separability
 python scripts/make_sensitivity.py              # M6/M7 vs their design choices
 python scripts/eval_ablation.py --run runs/edsr_tex_x4_classic   # texture-loss arm
+python scripts/m7_ceiling.py                    # attainable correspondence
+python scripts/m2_sensitivity.py                # M2 against its own thresholds
 python scripts/make_paper_tables.py             # LaTeX tables from results/*.json
 python scripts/make_report.py                   # assembles results/REPORT.md
 python scripts/check_tex_escapes.py             # guards against eaten LaTeX backslashes
@@ -162,7 +198,7 @@ The paper-facing scripts write into `paper/`, which is not part of this reposito
 Splits are fixed and committed (`configs/splits.json`, `configs/scaler.json`), so
 evaluation runs on exactly the frames reported in the paper.
 
-Three checks guard the manuscript against drift, because the failure modes are
+Four checks guard the manuscript against drift, because the failure modes are
 silent rather than loud. `check_tex_escapes.py` catches LaTeX macros whose
 backslash was eaten by a Python escape, which renders as plain text without
 failing the build. `check_paper_numbers.py` asserts every quantity quoted in the
@@ -180,7 +216,8 @@ whichever won.
 Included: the metric suite, models, training and evaluation code, experiment
 configurations, split lists, the aggregated results behind every table, and the
 protocol-validation outputs (`positive_control.json`, `robustness.json`,
-`sensitivity.json`).
+`sensitivity.json`, `m2_sensitivity.json`, `m7_ceiling.json`, and their `f3_`
+counterparts where the check runs on both datasets).
 
 Not included, and regenerable with the commands above: dataset files, per-frame
 result records, rendered figures (derived from the source imagery), and trained
@@ -194,14 +231,28 @@ the manuscript itself is kept out of the public repository.
 ## Training with the texture objective
 
 The multi-scale texture loss of `src/tsrf/train/losses.py` is off by default;
-every model in the main table is trained with L1 alone. To reproduce the
-ablation:
+every model in the main table is trained with L1 alone. The ablation fine-tunes
+the selected L1 regressor at two weights, on each dataset:
 
 ```bash
+# ADAS: 15000 steps, 15% of that track's 100k budget
 python scripts/train.py edsr_lite --steps 15000 --lr 5e-5 --texture-weight 0.005 \
     --init-from runs/edsr_lite_x4_classic/best.pt --out runs/edsr_tex_x4_classic
 python scripts/eval_ablation.py --run runs/edsr_tex_x4_classic
+
+# FLAME 3: 7500 steps, the same fraction of a 50k budget
+python scripts/train.py edsr_lite --dataset flame3 --steps 7500 --val-every 500 \
+    --texture-weight 0.005 --init-from runs/edsr_lite_x4_classic_flame3/best.pt \
+    --out runs/edsr_tex_x4_classic_flame3
+python scripts/eval_ablation.py --dataset flame3 --run runs/edsr_tex_x4_classic_flame3
 ```
+
+Two naming traps. The run `edsr_tex_*` carries the **larger** weight, 5e-3, and
+`edsr_tex2_*` the smaller, 2e-3, which is the opposite of what the names suggest;
+the mapping is asserted in `check_paper_numbers.py` rather than remembered. And
+these arms are evaluated at `last.pt`, not `best.pt`: selecting by validation PSNR
+would select against the objective under test, since the texture term buys
+statistics by spending pixel accuracy.
 
 ## Tests
 
@@ -209,8 +260,20 @@ python scripts/eval_ablation.py --run runs/edsr_tex_x4_classic
 python -m pytest tests/ -q
 ```
 
-103 tests covering the metric suite on synthetic scenes with known answers, the
-degradation pipeline, the models, and the statistics. The fractal metrics are
-validated against synthetic fractional Brownian surfaces of known Hurst
-exponent and against the two limits bracketing them: white detector noise
-(H = 0) and a smooth bandlimited field (H = 1).
+150 tests. The metric suite is exercised on synthetic scenes with known answers,
+the fractal metrics against synthetic fractional Brownian surfaces of known Hurst
+exponent and against the two limits bracketing them, white detector noise (H = 0)
+and a smooth bandlimited field (H = 1). The rest cover the degradation pipeline,
+the models, the statistics, the FLAME 3 radiometry and sampling-unit rule, and the
+three manuscript checkers.
+
+Several tests exist because the bug they pin was real and silent:
+
+- a NaN p-value inheriting the running maximum of the Holm correction, reporting
+  an untestable comparison as `p_adj = 2e-59`;
+- a bootstrap resampling the mean while the median was printed, putting the
+  estimate outside its own interval on skewed differences;
+- two FLAME 3 subsets numbering their frames from 00001 independently, which an
+  unqualified cluster label merged into shared units;
+- a texture loss that scores two independent draws from the same distribution as
+  a near-perfect match, which is the property the paper's argument rests on.
