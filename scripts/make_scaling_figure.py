@@ -10,6 +10,7 @@ corresponds to the measurement. Faithful reconstruction is the top-right corner;
 over-smoothing falls to the left; fabrication falls to the bottom.
 """
 
+import json
 import sys
 from pathlib import Path
 
@@ -29,14 +30,18 @@ from tsrf.eval import (  # noqa: E402
 )
 from tsrf.eval.runner import load_splits  # noqa: E402
 from tsrf.metrics.fractal import (  # noqa: E402
-    DEFAULT_SCALES, flat_cold_mask, local_std, texture_correspondence,
+    DEFAULT_SCALES, flat_cold_mask, local_std,
 )
 from tsrf.models import build_model  # noqa: E402
 from tsrf.models.registry import MODEL_SPECS  # noqa: E402
 
 SPLIT_DIR = Path("data/adas/images_thermal_val/analyticsData")
 OUT = Path("paper/fig_scaling.pdf")
-N_FRAMES = 150
+RESULTS = Path("results")
+#: Ladders cost a forward pass per model per frame, so they are cached and a
+#: layout change does not mean re-running the models.
+CACHE = RESULTS / "adas_figure_ladders.json"
+N_FRAMES = 1144
 
 PANEL = [
     ("bicubic",   "Bicubic",     "tab:gray",   "s"),
@@ -44,6 +49,20 @@ PANEL = [
     ("rrdb",      "RRDB (L1)",   "tab:cyan",   "v"),
     ("esrgan",    "ESRGAN",      "tab:red",    "D"),
 ]
+
+
+def geometric_mean_ladder(per_frame):
+    """Mean ladder whose fitted slope equals the mean of the per-frame slopes.
+
+    The exponent is a least-squares slope, hence a linear functional of the log
+    values, so averaging in log space commutes with fitting and averaging in
+    linear space does not. Plotting an arithmetic mean therefore draws a curve
+    whose slope is not the quantity reported anywhere in the paper: on the
+    FLAME 3 reference it reads 0.34 against the 0.618 the tables quote. The
+    geometric mean is the curve a reader can measure and land on the number.
+    """
+    import numpy as _np
+    return _np.exp(_np.mean(_np.log(_np.asarray(per_frame, dtype=float)), axis=0))
 
 
 def load_model(name, scaler):
@@ -55,30 +74,71 @@ def load_model(name, scaler):
     return torch_upsampler(net, scaler)
 
 
+def cached_ladders(force=False):
+    if CACHE.exists() and not force:
+        c = json.loads(CACHE.read_text())
+        if c["n_frames"] == N_FRAMES:
+            print(f"reusing cached ladders over {N_FRAMES} frames")
+            return (np.array(c["reference"]),
+                    {k: np.array(v) for k, v in c["models"].items()})
+    return None
+
+
+def compute_ladders(scaler, frames):
+    """Stream the test split once, accumulating log-ladders per model.
+
+    One frame is held at a time. Materialising the whole split instead costs
+    about 3 GB for the references alone, before the three derived fields and
+    the four reconstructions, which on this machine pages rather than runs.
+    """
+    models = {key: load_model(key, scaler) for key, _, _, _ in PANEL}
+    n_scales = len(DEFAULT_SCALES)
+    log_sums = {k: np.zeros(n_scales) for k in ["__ref__", *models]}
+
+    for i, name in enumerate(frames, 1):
+        hr = np.array(Image.open(SPLIT_DIR / name), dtype=np.float64)
+        gt = raw_to_kelvin(hr)
+        mask = flat_cold_mask(gt)
+        lr = degrade(hr, scale=4, preset="classic")
+
+        log_sums["__ref__"] += np.log([local_std(gt, w)[mask].mean()
+                                       for w in DEFAULT_SCALES])
+        for key, model in models.items():
+            sr = raw_to_kelvin(np.asarray(model(lr), dtype=np.float64))
+            log_sums[key] += np.log([local_std(sr, w)[mask].mean()
+                                     for w in DEFAULT_SCALES])
+        if i % 100 == 0:
+            print(f"    {i}/{len(frames)}")
+
+    n = len(frames)
+    ref = np.exp(log_sums.pop("__ref__") / n)
+    return ref, {k: np.exp(v / n) for k, v in log_sums.items()}
+
+
 def main():
     scaler = load_scaler()
     frames = load_splits()["test"][:N_FRAMES]
     print(f"{len(frames)} frames")
 
-    hrs = [np.array(Image.open(SPLIT_DIR / n), dtype=np.float64) for n in frames]
-    lrs = [degrade(h, scale=4, preset="classic") for h in hrs]
-    gts = [raw_to_kelvin(h) for h in hrs]
-    masks = [flat_cold_mask(g) for g in gts]
+    cached = cached_ladders()
+    if cached:
+        ref_ladder, ladders = cached
+    else:
+        ref_ladder, ladders = compute_ladders(scaler, frames)
+        RESULTS.mkdir(exist_ok=True)
+        CACHE.write_text(json.dumps(
+            {"n_frames": len(frames), "scales": list(DEFAULT_SCALES),
+             "reference": ref_ladder.tolist(),
+             "models": {k: v.tolist() for k, v in ladders.items()}}, indent=1))
 
-    ref_ladder = np.mean(
-        [[local_std(g, w)[m].mean() for w in DEFAULT_SCALES]
-         for g, m in zip(gts, masks)], axis=0)
-
-    ladders, amps, corrs = {}, {}, {}
+    # The plane is read from the aggregates rather than recomputed here, so
+    # every point a reader compares against the tables is the number the tables
+    # print, over all test frames rather than a subset of them.
+    amps, corrs = {}, {}
     for key, label, _, _ in PANEL:
-        model = load_model(key, scaler)
-        srs = [raw_to_kelvin(np.asarray(model(l), dtype=np.float64)) for l in lrs]
-        ladders[key] = np.mean(
-            [[local_std(s, w)[m].mean() for w in DEFAULT_SCALES]
-             for s, m in zip(srs, masks)], axis=0)
-        stats = [texture_correspondence(s, g) for s, g in zip(srs, gts)]
-        amps[key] = float(np.nanmean([t["flat_hf_amp_ratio"] for t in stats]))
-        corrs[key] = float(np.nanmean([t["flat_hf_corr"] for t in stats]))
+        agg = json.loads((RESULTS / f"{key}_classic.json").read_text())["aggregate"]
+        amps[key] = agg["m7_flat_hf_amp_ratio"]["mean"]
+        corrs[key] = agg["m7_flat_hf_corr"]["mean"]
         print(f"  {label:11s} amp={amps[key]:.3f}  corr={corrs[key]:.3f}  "
               f"ladder={np.round(ladders[key], 4)}")
 

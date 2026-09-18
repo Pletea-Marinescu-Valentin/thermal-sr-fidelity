@@ -1,7 +1,8 @@
 # Thermal fidelity evaluation for thermal image super-resolution
 
-Code for *Perceptual Metrics Reward Thermal Texture Fabrication: A Radiometric
-Fidelity Protocol for Thermal Image Super-Resolution*.
+Code for *Radiometric Fidelity in Thermal Image Super-Resolution: An Evaluation
+Protocol for Measurement Preservation, and Why Perceptual Metrics Reward Texture
+Fabrication*.
 
 Thermal super-resolution is normally evaluated with PSNR, SSIM and LPIPS, none of
 which measures whether a reconstruction preserves the physical quantity a thermal
@@ -118,6 +119,9 @@ python scripts/make_paper_tables.py             # LaTeX tables from results/*.js
 python scripts/make_report.py                   # assembles results/REPORT.md
 python scripts/check_tex_escapes.py             # guards against eaten LaTeX backslashes
 python scripts/check_paper_numbers.py           # every number quoted in the prose
+python scripts/check_cross_refs.py              # manual subsection letters still resolve
+python scripts/make_effects_table.py            # paired effect sizes, both datasets
+python scripts/make_flame3_figure.py            # the replication figure
 python scripts/make_protocol_figure.py          # Fig. 1, the protocol end to end
 python scripts/make_overleaf_zip.py             # bundles paper/ into overleaf.zip
 ```
@@ -143,6 +147,15 @@ The paper-facing scripts write into `paper/`, which is not part of this reposito
 
 Splits are fixed and committed (`configs/splits.json`, `configs/scaler.json`), so
 evaluation runs on exactly the frames reported in the paper.
+
+Three checks guard the manuscript against drift, because the failure modes are
+silent rather than loud. `check_tex_escapes.py` catches LaTeX macros whose
+backslash was eaten by a Python escape, which renders as plain text without
+failing the build. `check_paper_numbers.py` asserts every quantity quoted in the
+prose against `results/*.json`; tables are generated and cannot drift, prose is
+written by hand and did. `check_cross_refs.py` resolves the manual subsection
+letters: IEEEtran numbers subsections by position, so inserting one shifts every
+letter after it and the references keep resolving, to the wrong target.
 
 ## What is and is not in this repository
 
