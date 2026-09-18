@@ -352,12 +352,17 @@ ABLATION_COLUMNS = [
 OUT_ABLATION = Path("paper/table_ablation.tex")
 
 
-def write_ablation_table():
-    """Table for the texture-loss sweep, skipping arms not yet evaluated."""
-    cols = [(stem, label) for stem, label in ABLATION_COLUMNS
-            if (RESULTS / f"{stem}.json").exists()]
+def write_ablation_table(prefix="", out=None, dataset="FLIR ADAS v2"):
+    """Table for the texture-loss sweep, skipping arms not yet evaluated.
+
+    `prefix` selects the track: "" for ADAS, "f3_" for FLAME 3, matching how
+    every other artefact of the second dataset is named.
+    """
+    out = out or OUT_ABLATION
+    cols = [(prefix + stem, label) for stem, label in ABLATION_COLUMNS
+            if (RESULTS / f"{prefix}{stem}.json").exists()]
     if len(cols) < 2:
-        print("ablation table: not enough arms on disk, skipped")
+        print(f"ablation table ({dataset}): not enough arms on disk, skipped")
         return
     aggs = {stem: json.loads((RESULTS / f"{stem}.json").read_text())["aggregate"]
             for stem, _ in cols}
@@ -366,10 +371,11 @@ def write_ablation_table():
         r"\begin{table}[t]", r"\centering",
         r"\caption{Adding the texture objective \eqref{eq:ltex} to the $L_1$ "
         r"regressor, at two weights, against the same architecture trained with "
-        r"$L_1$ alone and the adversarial model. The statistics of the emitted "
-        r"texture move to the reference and past it, while correspondence to the "
-        r"measurement falls throughout.}",
-        r"\label{tab:ablation}",
+        r"$L_1$ alone and the adversarial model, on "
+        + dataset + r". The statistics of the emitted "
+        r"texture move toward the reference while correspondence to the "
+        r"measurement falls.}",
+        r"\label{tab:ablation" + ("" if not prefix else "f3") + "}",
         r"\setlength{\tabcolsep}{4pt}",
         r"\begin{tabular}{l" + "c" * len(cols) + "}",
         r"\toprule",
@@ -382,8 +388,8 @@ def write_ablation_table():
         cells = [fmt.format(aggs[stem][key]["mean"]) for stem, _ in cols]
         lines.append(f"{label} & " + " & ".join(cells) + r" \\")
     lines += [r"\bottomrule", r"\end{tabular}", r"\end{table}"]
-    OUT_ABLATION.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    print(f"wrote {OUT_ABLATION}")
+    out.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    print(f"wrote {out}")
     for key, label, fmt in ABLATION_ROWS:
         vals = "  ".join(f"{fmt.format(aggs[s][key]['mean']):>9}" for s, _ in cols)
         print(f"  {label[:26]:28s}{vals}")
@@ -493,6 +499,8 @@ def main():
     write_main_table(models)
     if args.preset == "classic":
         write_ablation_table()
+        write_ablation_table(prefix="f3_", out=Path("paper/table_ablation_f3.tex"),
+                             dataset="FLAME 3")
         write_control_table()
         write_iisr_table()
         write_sensitivity_table()

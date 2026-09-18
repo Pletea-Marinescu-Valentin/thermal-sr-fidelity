@@ -17,9 +17,10 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+from tsrf.data.flame3 import Flame3Scaler  # noqa: E402
 from tsrf.eval import (  # noqa: E402
-    aggregate, bicubic_upsampler, evaluate_split, load_checkpoint, load_scaler,
-    torch_upsampler,
+    aggregate, bicubic_upsampler, evaluate_split, evaluate_split_flame3,
+    load_checkpoint, load_scaler, torch_upsampler,
 )
 from tsrf.models import build_model  # noqa: E402
 from tsrf.models.registry import MODEL_SPECS  # noqa: E402
@@ -46,35 +47,53 @@ def main():
     ap.add_argument("--preset", default="classic")
     ap.add_argument("--limit", type=int, default=None)
     ap.add_argument("--label", default="EDSR + texture loss")
+    ap.add_argument("--dataset", default="adas", choices=("adas", "flame3"),
+                    help="which track this run belongs to; sets the scaler, "
+                         "the test split and the bootstrap cluster")
     args = ap.parse_args()
+    # The two tracks write into the same results/ directory, so FLAME 3 arms
+    # carry the prefix every other FLAME 3 artefact carries. Without it the
+    # ablation of one dataset would silently overwrite the other's.
+    prefix = "f3_" if args.dataset == "flame3" else ""
 
     # Key the outputs to the run, so a sweep over lambda does not have each
     # arm silently overwrite the previous one. Run directories already end in
     # the preset (runs/edsr_tex_x4_classic), so drop it rather than repeat it.
     tag = Path(args.run).name
+    # Run directories are named <model>_x<scale>_<preset>[_flame3]. Both
+    # trailing parts are already carried by the output filename, as the preset
+    # suffix and the f3_ prefix, so strip them rather than repeat them and end
+    # up with f3_edsr_tex_x4_classic_flame3_classic.json.
+    if tag.endswith("_flame3"):
+        tag = tag[: -len("_flame3")]
     if tag.endswith(f"_{args.preset}"):
         tag = tag[: -len(args.preset) - 1]
-    scaler = load_scaler()
+    scaler = Flame3Scaler() if args.dataset == "flame3" else load_scaler()
     spec = MODEL_SPECS["edsr_lite"]
     net = build_model(spec["builder"], scale=4, **spec["kwargs"])
     net, step, _ = load_checkpoint(net, Path(args.run) / args.checkpoint)
     print(f"loaded {args.run}/{args.checkpoint} (step {step})")
 
     t0 = time.time()
-    records, names, videos = evaluate_split(
-        torch_upsampler(net, scaler), split="test", preset=args.preset,
-        limit=args.limit, scaler=scaler, progress_every=200)
+    if args.dataset == "flame3":
+        records, names, videos = evaluate_split_flame3(
+            torch_upsampler(net, scaler), "f3test", preset=args.preset,
+            limit=args.limit, scaler=scaler, progress_every=200)
+    else:
+        records, names, videos = evaluate_split(
+            torch_upsampler(net, scaler), split="test", preset=args.preset,
+            limit=args.limit, scaler=scaler, progress_every=200)
     print(f"{len(records)} frames in {time.time() - t0:.0f}s")
 
     agg = aggregate(records, videos)
     RESULTS.mkdir(exist_ok=True)
-    (RESULTS / f"{tag}_{args.preset}_per_frame.json").write_text(
+    (RESULTS / f"{prefix}{tag}_{args.preset}_per_frame.json").write_text(
         json.dumps({"names": names, "videos": videos, "records": records}, indent=1))
 
     # Compare against the same architecture trained with L1 alone: the only
     # difference between the two arms is the objective.
     baseline = json.loads(
-        (RESULTS / f"edsr_lite_{args.preset}_per_frame.json").read_text())
+        (RESULTS / f"{prefix}edsr_lite_{args.preset}_per_frame.json").read_text())
     tests = {}
     if baseline["names"][:len(names)] == names:
         keys = [k for k, _ in ROWS]
@@ -88,19 +107,21 @@ def main():
 
     others = {}
     for name in ("bicubic", "edsr_lite", "esrgan"):
-        f = RESULTS / f"{name}_{args.preset}.json"
+        f = RESULTS / f"{prefix}{name}_{args.preset}.json"
         if f.exists():
             others[name] = json.loads(f.read_text())["aggregate"]
 
-    (RESULTS / f"{tag}_{args.preset}.json").write_text(json.dumps(
+    (RESULTS / f"{prefix}{tag}_{args.preset}.json").write_text(json.dumps(
         {"run": args.run, "step": step, "preset": args.preset,
-         "n_frames": len(records), "n_videos": len(set(videos)),
+         "dataset": args.dataset,
+         "n_frames": len(records), "n_clusters": len(set(videos)),
          "aggregate": agg, "paired_tests_vs_edsr_l1": tests}, indent=1))
 
     cols = [("bicubic", "Bicubic"), ("edsr_lite", "EDSR (L1)"),
             ("esrgan", "ESRGAN")]
     lines = [f"# Texture-loss ablation ({args.preset}, x4)\n",
-             f"n={len(records)} frames / {len(set(videos))} videos. "
+             f"n={len(records)} frames / {len(set(videos))} "
+             f"{'frame clusters' if args.dataset == 'flame3' else 'videos'}. "
              f"Checkpoint {args.run}/{args.checkpoint} at step {step}.\n",
              "| metric | " + " | ".join(l for _, l in cols)
              + f" | {args.label} | p vs EDSR (L1) |",
@@ -116,7 +137,7 @@ def main():
         lines.append("| " + " | ".join(row) + " |")
 
     md = "\n".join(lines) + "\n"
-    (RESULTS / f"{tag}_{args.preset}.md").write_text(md)
+    (RESULTS / f"{prefix}{tag}_{args.preset}.md").write_text(md)
     print("\n" + md)
 
 
