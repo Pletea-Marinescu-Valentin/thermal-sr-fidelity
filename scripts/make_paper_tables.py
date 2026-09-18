@@ -373,8 +373,9 @@ def write_ablation_table(prefix="", out=None, dataset="FLIR ADAS v2"):
         r"regressor, at two weights, against the same architecture trained with "
         r"$L_1$ alone and the adversarial model, on "
         + dataset + r". The statistics of the emitted "
-        r"texture move toward the reference while correspondence to the "
-        r"measurement falls.}",
+        r"texture cross the reference, overshooting it in amplitude and in "
+        r"exponent, while correspondence to the measurement falls below that "
+        r"of the adversarial model.}",
         r"\label{tab:ablation" + ("" if not prefix else "f3") + "}",
         r"\setlength{\tabcolsep}{4pt}",
         r"\begin{tabular}{l" + "c" * len(cols) + "}",
