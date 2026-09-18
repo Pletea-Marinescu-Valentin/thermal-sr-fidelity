@@ -133,6 +133,7 @@ python scripts/make_report.py                   # assembles results/REPORT.md
 python scripts/check_tex_escapes.py             # guards against eaten LaTeX backslashes
 python scripts/check_paper_numbers.py           # every number quoted in the prose
 python scripts/check_cross_refs.py              # manual subsection letters still resolve
+python scripts/check_build_warnings.py          # overfull boxes, undefined refs
 python scripts/make_effects_table.py            # paired effect sizes, both datasets
 python scripts/make_flame3_figure.py            # the replication figure
 python scripts/make_protocol_figure.py          # Fig. 1, the protocol end to end
@@ -169,6 +170,10 @@ prose against `results/*.json`; tables are generated and cannot drift, prose is
 written by hand and did. `check_cross_refs.py` resolves the manual subsection
 letters: IEEEtran numbers subsections by position, so inserting one shifts every
 letter after it and the references keep resolving, to the wrong target.
+`check_build_warnings.py` reads the LaTeX log, which latexmk exits zero on
+regardless: an overfull table printing over the neighbouring column, an undefined
+reference rendering as [?], a label defined twice sending every reference to
+whichever won.
 
 ## What is and is not in this repository
 
