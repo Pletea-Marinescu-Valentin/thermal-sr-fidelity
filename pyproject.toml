@@ -15,6 +15,15 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# PSNR/SSIM/LPIPS, training, evaluation and figures. requirements.txt pins the
+# versions the paper used and says where the CUDA build of PyTorch comes from.
+full = [
+    "torch>=2.11",
+    "torchvision>=0.26",
+    "lpips>=0.1.4",
+    "scikit-image>=0.26",
+    "matplotlib>=3.11",
+]
 dev = ["pytest>=8.0"]
 
 [tool.setuptools.packages.find]

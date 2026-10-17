@@ -1,17 +1,80 @@
 # Thermal fidelity evaluation for thermal image super-resolution
 
 Code for *Radiometric Fidelity in Thermal Image Super-Resolution: An Evaluation
-Protocol for Measurement Preservation, and Why Perceptual Metrics Reward Texture
-Fabrication*.
+Protocol for Measurement Preservation* (V. Pletea-Marinescu, M. Ciuciulete,
+G. Stamatescu; under review).
 
 Thermal super-resolution is normally evaluated with PSNR, SSIM and LPIPS, none of
 which measures whether a reconstruction preserves the physical quantity a thermal
 image encodes. This repository implements a deterministic protocol of eight fidelity
-metrics defined on radiometric data and expressed in Kelvin, together with the
+metrics defined on radiometric data and expressed in kelvin, together with the
 training and evaluation pipeline used to compare five reconstruction methods on two
 independent radiometric datasets recorded by three cameras: 1144 automotive frames
 from a FLIR Tau 2, and 738 airborne wildfire frames from a DJI M30T reconstructed by
 models trained on an Autel XT709.
+
+## Quick start
+
+The metric suite needs only NumPy, SciPy, OpenCV and Pillow:
+
+```bash
+python -m venv .venv
+.venv/Scripts/python.exe -m pip install -e .          # Linux/macOS: .venv/bin/python
+.venv/Scripts/python.exe -m pip install pytest
+.venv/Scripts/python.exe -m pytest -q                  # tests needing PyTorch are skipped
+```
+
+To score your own reconstruction, pass temperatures in kelvin on the
+high-resolution grid. No model and no dataset from this study is needed:
+
+```python
+from tsrf.metrics import (
+    radiometric_error, hotspot_preservation, hallucination_metrics,
+    thermal_ordering, cold_region_smoothness, gradient_fidelity,
+    texture_scaling, texture_correspondence,
+)
+
+# t_gt: radiometric reference, t_sr: its reconstruction, t_lr_up: the
+# low-resolution input bicubically upsampled to the same shape (float arrays, K)
+m0 = radiometric_error(t_sr, t_gt)                          # rmse_k, mae_k, bias_k
+m1 = hotspot_preservation(t_sr, t_gt, delta_k=10.0)         # mask_iou, peak_error_on_gt_support_k
+m2 = hallucination_metrics(t_sr, t_gt, t_lr_up, delta_k=10.0)  # n_hallucinated, miss_rate
+m3 = thermal_ordering(t_sr, t_gt)                           # spearman_rho, top1_preserved
+m4 = cold_region_smoothness(t_sr, t_gt)                     # texture_ratio
+m5 = gradient_fidelity(t_sr, t_gt)                          # gradient_ratio, orientation_cosine
+m6 = texture_scaling(t_sr, t_gt)                            # flat_delta_hurst
+m7 = texture_correspondence(t_sr, t_gt)                     # flat_hf_amp_ratio (a), flat_hf_corr (r)
+```
+
+`src/tsrf/eval/runner.py` (`evaluate_frame`) shows the full per-frame protocol,
+including PSNR, SSIM and LPIPS, as used for the paper.
+
+## Where each result in the paper comes from
+
+Every table is generated from `results/*.json` by a script, never typed by hand,
+and every number quoted in the text is asserted against the same files by
+`scripts/check_paper_numbers.py`.
+
+| Paper | Produced by | Read from |
+|---|---|---|
+| Table I, FLIR ADAS v2 | `eval_all.py --preset classic` and `--preset realistic`, then `make_paper_tables.py` | `results/{model}_{preset}.json` |
+| Table II, texture statistics | `make_paper_tables.py` | `results/{model}_classic.json` |
+| Table III, constructed references | `positive_control.py`, `make_paper_tables.py` | `results/positive_control.json` |
+| Table IV, FLAME 3 | `pipeline_flame3.sh`, `eval_flame3.py`, `make_paper_tables.py` | `results/f3_{model}_{preset}.json` |
+| Table V, controlled pair | `make_effects_table.py` | per-frame records (see below) |
+| Table VI, texture-objective ablation | `train.py --texture-weight`, `eval_ablation.py`, `make_paper_tables.py` | `results/{,f3_}edsr_tex*_x4_classic.json` |
+| Fig. 1, protocol | `make_protocol_figure.py` | none |
+| Fig. 2, a flat region close up | `make_texture_figure.py` | an ADAS test frame and the checkpoints |
+| Fig. 3, ADAS texture | `make_scaling_figure.py` | `results/adas_figure_ladders.json`, `m7_ceiling.json` |
+| Fig. 4, FLAME 3 replication | `make_flame3_figure.py` | `results/f3_figure_ladders.json`, `f3_m7_ceiling.json`, `f3_positive_control.json` |
+| Sec. V-B, threshold and M2 sweeps | `make_robustness.py`, `m2_sensitivity.py` | `results/robustness.json`, `m2_sensitivity.json` |
+| Sec. V-G, design choices, attainable correspondence, FLIR-IISR | `make_sensitivity.py`, `m7_ceiling.py`, `eval_iisr.py` | `results/sensitivity.json`, `m7_ceiling*.json`, `iisr_*.json` |
+
+All scripts are in `scripts/`. The aggregated results are committed, so every
+table except Table V can be regenerated from this repository alone. Table V, the
+paired statistics and `check_paper_numbers.py` also need the per-frame records
+(`results/*_per_frame.json`, 90 MB), which the evaluation scripts write and which
+are kept out of git for their size.
 
 ## Metric suite (`src/tsrf/metrics/`)
 
@@ -82,7 +145,8 @@ last two checks, which run on both datasets.
 
 None of the three datasets is redistributed here.
 
-- **FLIR ADAS v2** (primary, radiometric). Obtain from Teledyne FLIR under its image
+- **FLIR ADAS v2** (primary, radiometric). Obtain from Teledyne FLIR
+  (<https://oem.flir.com/solutions/automotive/adas-dataset-form/>) under its image
   licence agreement, which permits research use and publication but not
   redistribution. The 16-bit T-linear TIFFs in `analyticsData/` are the radiometric
   measurements this study uses; apparent temperature is `raw * 0.04` K.
@@ -91,9 +155,10 @@ None of the three datasets is redistributed here.
   ship integer rasters whose scale is recovered empirically, `counts/10 - 275.0` in
   Celsius; the CV subset (DJI M30T) is the test split and ships float32 Celsius
   directly. Testing therefore crosses instruments by construction. Obtain from
-  IEEE DataPort.
-- **FLIR-IISR** (secondary, real cross-sensor degradation, 8-bit). Used only for the
-  stress test in Section V-C; no claims in Kelvin are made from it.
+  IEEE DataPort, <https://doi.org/10.21227/w0mz-aq48>.
+- **FLIR-IISR** (secondary, real cross-sensor degradation, 8-bit), from
+  <https://github.com/JZD151/Real-IISR>. Used only for the stress test in
+  Section V-G; no claims in kelvin are made from it.
 
 ## Statistics (`src/tsrf/stats/`)
 
@@ -122,14 +187,20 @@ unit at all has no p-value; `holm_bonferroni` keeps such entries as NaN and excl
 them from the multiplicity count, rather than ranking them among the tests that were
 performed, where the step-down loop would hand them the running maximum.
 
-## Setup
+## Environment
+
+The results in the paper were produced with Python 3.13.12 on Windows 11 and a
+single NVIDIA RTX 5050 GPU. `requirements.txt` pins the exact versions used:
 
 ```bash
 python -m venv .venv
+# PyTorch first, from the CUDA 12.8 index (required for Blackwell, sm_120):
+.venv/Scripts/python.exe -m pip install torch==2.11.0 torchvision==0.26.0 --index-url https://download.pytorch.org/whl/cu128
+.venv/Scripts/python.exe -m pip install -r requirements.txt
 .venv/Scripts/python.exe -m pip install -e .
-# PyTorch for Blackwell (RTX 5050, sm_120):
-.venv/Scripts/python.exe -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
 ```
+
+`pip install -e .[full]` installs the same packages without pinning them.
 
 ## Reproducing the results
 
@@ -168,7 +239,7 @@ python scripts/make_paper_tables.py             # LaTeX tables from results/*.js
 python scripts/make_report.py                   # assembles results/REPORT.md
 python scripts/check_tex_escapes.py             # guards against eaten LaTeX backslashes
 python scripts/check_paper_numbers.py           # every number quoted in the prose
-python scripts/check_cross_refs.py              # manual subsection letters still resolve
+python scripts/check_cross_refs.py              # no unchecked manual subsection letters
 python scripts/check_build_warnings.py          # overfull boxes, undefined refs
 python scripts/make_effects_table.py            # paired effect sizes, both datasets
 python scripts/make_flame3_figure.py            # the replication figure
@@ -203,9 +274,11 @@ silent rather than loud. `check_tex_escapes.py` catches LaTeX macros whose
 backslash was eaten by a Python escape, which renders as plain text without
 failing the build. `check_paper_numbers.py` asserts every quantity quoted in the
 prose against `results/*.json`; tables are generated and cannot drift, prose is
-written by hand and did. `check_cross_refs.py` resolves the manual subsection
-letters: IEEEtran numbers subsections by position, so inserting one shifts every
-letter after it and the references keep resolving, to the wrong target.
+written by hand and did. `check_cross_refs.py` guards the subsection references:
+IEEEtran numbers subsections by position, so a hand-written letter shifts when a
+subsection is inserted and keeps resolving, to the wrong target. The paper now
+references labels instead, and the checker fails on any manual letter whose
+target has not been checked and recorded.
 `check_build_warnings.py` reads the LaTeX log, which latexmk exits zero on
 regardless: an overfull table printing over the neighbouring column, an undefined
 reference rendering as [?], a label defined twice sending every reference to
@@ -222,7 +295,10 @@ counterparts where the check runs on both datasets).
 Not included, and regenerable with the commands above: dataset files, per-frame
 result records, rendered figures (derived from the source imagery), and trained
 checkpoints (the largest exceeds GitHub's per-file limit). Checkpoints are available
-from the authors on request.
+from the authors on request. `configs/checkpoints.sha256` records the SHA-256 of
+the twelve checkpoints behind the paper's numbers (`best.pt` for the regressors,
+`last.pt` for ESRGAN and for the ablation arms), so a copy obtained later can be
+checked with `sha256sum -c configs/checkpoints.sha256` from the repository root.
 
 Also not included: the `paper/` directory holding the manuscript, its figures
 and its generated tables. The code that produces those artefacts is here, but
@@ -260,7 +336,7 @@ statistics by spending pixel accuracy.
 python -m pytest tests/ -q
 ```
 
-150 tests. The metric suite is exercised on synthetic scenes with known answers,
+156 tests. The metric suite is exercised on synthetic scenes with known answers,
 the fractal metrics against synthetic fractional Brownian surfaces of known Hurst
 exponent and against the two limits bracketing them, white detector noise (H = 0)
 and a smooth bandlimited field (H = 1). The rest cover the degradation pipeline,

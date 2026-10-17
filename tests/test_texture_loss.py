@@ -1,6 +1,9 @@
-import torch
+import pytest
 
-from tsrf.train.losses import DEFAULT_SCALES, MultiScaleTextureLoss, local_std
+# The metric suite installs without PyTorch; skip rather than fail there.
+torch = pytest.importorskip("torch")
+
+from tsrf.train.losses import DEFAULT_SCALES, MultiScaleTextureLoss, local_std  # noqa: E402
 
 
 def test_loss_is_zero_for_an_exact_match():
