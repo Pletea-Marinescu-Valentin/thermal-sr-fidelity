@@ -76,14 +76,11 @@ def main():
         # columns of them overrun a single IEEEtran column by about 93 pt and
         # print over the neighbouring text.
         r"\begin{table*}[t]", r"\centering",
-        r"\caption{The controlled comparison: ESRGAN minus the RRDB it was "
-        r"fine-tuned from, so the training objective is the only difference "
-        r"between the arms. Each cell is the paired difference with its "
-        r"bootstrap interval, and $c$ is the share of units on which the "
-        r"difference keeps its sign. Units are videos on ADAS "
-        f"(${n_ad}$) and frames on FLAME 3 (${n_f3}$). "
-        r"Every difference is significant at $p_{\mathrm{adj}} < 10^{-4}$; the "
-        r"effect sizes, not the p-values, carry the claim.}",
+        # One or two lines: what the cells are and over which units. Reading
+        # the differences is the text's job, not the caption's.
+        r"\caption{ESRGAN minus the RRDB it was fine-tuned from: paired "
+        r"difference, 95\% bootstrap interval and sign consistency $c$, over "
+        f"videos on ADAS (${n_ad}$) and frames on FLAME~3 (${n_f3}$).}}",
         r"\label{tab:effects}",
         r"\setlength{\tabcolsep}{4pt}",
         r"\begin{tabular}{lcccc}",

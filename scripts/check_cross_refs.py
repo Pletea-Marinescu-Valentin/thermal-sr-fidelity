@@ -1,15 +1,17 @@
 """Check the manual subsection cross-references in the manuscript.
 
-IEEEtran numbers subsections as letters, and the paper refers to them by hand,
-as "Section~\\ref{sec:results}-D". Those letters are positional: inserting one
-subsection silently shifts every letter after it, and the build stays clean
+IEEEtran numbers subsections as letters, and the paper used to refer to them by
+hand, as "Section~\\ref{sec:results}-D". Those letters are positional: inserting
+one subsection silently shifts every letter after it, and the build stays clean
 because the label still resolves. A reader then follows a pointer to the wrong
 subsection, which is worse than a broken reference because nothing announces it.
 
-This resolves every manual letter against the actual subsection order and
-prints what each one currently points at, so the target can be checked rather
-than assumed. With --expect it also verifies a recorded mapping, so a later
-insertion fails loudly instead of quietly renaming the targets.
+The paper now labels every subsection it points at, and \\ref of such a label
+prints "V-D" itself, so it cannot drift. This stays as the guard against a
+hand-written letter creeping back: it resolves every manual letter against the
+actual subsection order and prints what each one currently points at, and any
+letter not recorded in paper/cross_refs.json fails, as does a recorded one whose
+target moved. Record a target with --write-expect only after checking it.
 
 Run: .venv/Scripts/python.exe scripts/check_cross_refs.py
 """
@@ -104,12 +106,21 @@ def main():
         expected = json.loads(EXPECT.read_text(encoding="utf-8"))
         drifted = {k: (v, resolved.get(k)) for k, v in expected.items()
                    if resolved.get(k) != v}
+        # A letter nobody recorded has never been checked against its target.
+        unrecorded = sorted(set(resolved) - set(expected))
         if drifted:
             print(f"\n{len(drifted)} reference(s) now point somewhere else:")
             for k, (was, now) in drifted.items():
                 print(f"  {k}: was {was!r}, now {now!r}")
             status = 1
-        else:
+        if unrecorded:
+            print(f"\n{len(unrecorded)} manual reference(s) not recorded in "
+                  f"{EXPECT}; prefer a \\label on the subsection, or check the "
+                  "target and run --write-expect:")
+            for k in unrecorded:
+                print(f"  {k} -> {resolved[k]}")
+            status = 1
+        if not drifted and not unrecorded:
             print(f"\nall {len(expected)} recorded targets unchanged")
     else:
         print(f"\nno {EXPECT}; run with --write-expect once the targets are right")

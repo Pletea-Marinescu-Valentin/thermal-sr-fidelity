@@ -2,8 +2,9 @@ r"""Emit the paper's result tables straight from results/*.json.
 
 Transcribing numbers by hand is how a table drifts from the data it claims to
 report, and it double-rounds: 0.474475 becomes 0.4745 and then 0.475. This
-writes paper/table_main.tex and paper/table_texture.tex, which the paper
-\input{}s, so every printed cell is formatted exactly once from the aggregate.
+writes the paper/table_*.tex files the paper \input{}s, so every printed cell
+is formatted exactly once from the aggregate. Captions stay at one or two
+lines; what a table shows is argued in the text, not in its caption.
 """
 
 import argparse
@@ -23,6 +24,11 @@ SHORT = {"bicubic": "Bicubic", "edsr_lite": "EDSR", "rrdb": "RRDB",
 
 UP, DOWN, TO1 = r"$\uparrow$", r"$\downarrow$", r"$\rightarrow 1$"
 
+#: Format of a row that prints a total over the test split rather than a mean.
+#: Invented hot regions are rare enough that a per-frame rate prints as a row
+#: of 0.000, which reads as a rounding artefact; the integer count is exact.
+COUNT = "count"
+
 MAIN_ROWS = [
     ("std_psnr_db",        "PSNR (dB) " + UP,                 "{:.2f}", "high"),
     ("std_ssim",           "SSIM " + UP,                      "{:.4f}", "high"),
@@ -33,8 +39,10 @@ MAIN_ROWS = [
     ("m1_d10_mask_iou",    "M1 IoU@10K " + UP,                "{:.3f}", "high"),
     ("m1_d10_peak_error_on_gt_support_k",
      "M1 peak error (K) " + DOWN,                             "{:.2f}", "low"),
+    # Unbolded: a tie at zero, and bicubic's zero holds by construction, so
+    # marking a winner would rank nothing.
     ("m2_d10_n_hallucinated",
-     "M2 hallucinated / frame " + DOWN,                       "{:.3f}", "low"),
+     "M2 invented regions (total) " + DOWN,                   COUNT, None),
     ("m2_d10_miss_rate",   "M2 miss rate " + DOWN,            "{:.3f}", "low"),
     ("m3_spearman_rho",    r"M3 ordering $\rho_s$ " + UP,     "{:.3f}", "high"),
     ("m3_top1_preserved",  "M3 top-1 preserved " + UP,        "{:.3f}", "high"),
@@ -54,6 +62,18 @@ TEXTURE_ROWS = [
 def load(preset, models):
     return {m: json.loads((RESULTS / f"{m}_{preset}.json").read_text())["aggregate"]
             for m in models}
+
+
+def cell(aggregate, fmt, n_frames):
+    """One printed cell; a COUNT row prints the mean times the frame count."""
+    if fmt != COUNT:
+        return fmt.format(aggregate["mean"])
+    total = aggregate["mean"] * n_frames
+    # A fractional total would mean the mean skipped frames, and the integer
+    # printed would then not be the count it claims to be.
+    if abs(total - round(total)) > 1e-6:
+        sys.exit(f"count row does not total to a whole number: {total}")
+    return str(round(total))
 
 
 def best_cells(values, direction, fmt):
@@ -92,12 +112,9 @@ def write_main_table(models):
 
     lines = [
         r"\begin{table*}[t]", r"\centering",
-        r"\caption{Fidelity protocol at $\times 4$ on the FLIR ADAS v2 radiometric "
-        f"test split ({meta['n_frames']} frames, {meta['n_videos']} videos). "
-        r"Arrows give the preferred direction; $\rightarrow 1$ denotes that both "
-        r"over- and under-shoot are errors. Best value per row and degradation in "
-        r"bold. Perceptual metrics (top block) and fidelity metrics (bottom block) "
-        r"disagree on the adversarial model.}",
+        r"\caption{Results at $\times 4$ on the FLIR ADAS v2 test split "
+        f"({meta['n_frames']} frames, {meta['n_videos']} videos). Best value per "
+        r"row and degradation in bold; $\rightarrow 1$ marks a two-sided ratio.}",
         r"\label{tab:main}",
         # Bold digits are wider than regular ones, and marking ties honestly
         # bolds more cells than picking one arbitrary winner would.
@@ -119,8 +136,10 @@ def write_main_table(models):
         for preset in ("classic", "realistic"):
             vals = [aggs[preset][m][key]["mean"] for m in models]
             best = best_cells(vals, direction, fmt)
-            blocks.append([(r"\textbf{" + fmt.format(v) + "}") if i in best
-                           else fmt.format(v) for i, v in enumerate(vals)])
+            shown = [cell(aggs[preset][m][key], fmt, meta["n_frames"])
+                     for m in models]
+            blocks.append([(r"\textbf{" + s + "}") if i in best else s
+                           for i, s in enumerate(shown)])
         lines.append(f"{label} & " + " & ".join(blocks[0]) + " & & "
                      + " & ".join(blocks[1]) + r" \\")
     lines += [r"\bottomrule", r"\end{tabular}", r"\end{table*}"]
@@ -136,14 +155,9 @@ def write_texture_table(models, preset):
 
     lines = [
         r"\begin{table}[t]", r"\centering",
-        r"\caption{Texture character in the flat cold set $F$, "
-        f"{preset} degradation, " + r"$\times 4$, "
-        f"{meta['n_frames']} frames. " + r"$\hat{H}$ is the variance-scaling "
-        r"exponent of \eqref{eq:powerlaw} and $D = 3 - \hat{H}$; $a$ and $r$ are "
-        r"the amplitude and correspondence of \eqref{eq:m7}. The reference reads "
-        + f"$\\hat{{H}} = {ref_h:.3f}$ and $D = {ref_d:.3f}$. "
-        + r"The adversarial model matches the reference statistics and carries "
-        r"the least of its signal.}",
+        r"\caption{Texture statistics in the flat cold set $F$ on FLIR ADAS v2 "
+        f"({preset} degradation, {meta['n_frames']} frames); the reference "
+        + f"reads $\\hat{{H}} = {ref_h:.3f}$ and $D = {ref_d:.3f}$.}}",
         r"\label{tab:texture}",
         r"\setlength{\tabcolsep}{4pt}",
         r"\begin{tabular}{l" + "c" * len(models) + "}",
@@ -309,13 +323,8 @@ def write_control_table():
 
     lines = [
         r"\begin{table}[t]", r"\centering",
-        r"\caption{The protocol on references whose answer is known by "
-        r"construction, " + f"{d['n_frames']} radiometric test frames. All three "
-        r"keep the reference's low-frequency content and differ only in the fine "
-        r"texture: one attenuates the measured texture, two replace it with a "
-        r"phase-randomised surrogate carrying no measured signal at all. M4 and "
-        r"M6 rank the locally matched fabrication as the more faithful of the "
-        r"two failures; only M7 rejects it.}",
+        r"\caption{Texture metrics on constructed references with a known "
+        f"outcome ({d['n_frames']} FLIR ADAS v2 test frames).}}",
         r"\label{tab:control}",
         r"\setlength{\tabcolsep}{4pt}",
         r"\begin{tabular}{l" + "c" * len(CONTROL_COLUMNS) + "}",
@@ -332,7 +341,6 @@ def write_control_table():
 
 
 ABLATION_ROWS = [
-    ("std_psnr_db",          "PSNR (dB) " + UP,          "{:.2f}"),
     ("std_lpips",            "LPIPS " + DOWN,            "{:.4f}"),
     ("m0_rmse_k",            "M0 RMSE (K) " + DOWN,      "{:.3f}"),
     ("m4_texture_ratio",     r"M4 $R_{\mathrm{tex}}$ " + TO1, "{:.3f}"),
@@ -351,49 +359,60 @@ ABLATION_COLUMNS = [
 
 OUT_ABLATION = Path("paper/table_ablation.tex")
 
+#: (results prefix, block heading) of each track the ablation was run on; ""
+#: is ADAS and "f3_" FLAME 3, matching how every other artefact is named.
+ABLATION_TRACKS = [("", "FLIR ADAS v2"), ("f3_", "FLAME~3")]
 
-def write_ablation_table(prefix="", out=None, dataset="FLIR ADAS v2"):
-    """Table for the texture-loss sweep, skipping arms not yet evaluated.
 
-    `prefix` selects the track: "" for ADAS, "f3_" for FLAME 3, matching how
-    every other artefact of the second dataset is named.
+def write_ablation_table():
+    """Texture-loss sweep on both datasets, stacked in one table.
+
+    Arms not yet evaluated are skipped, and a track with fewer than two arms
+    on disk is left out rather than printed half empty.
     """
-    out = out or OUT_ABLATION
-    cols = [(prefix + stem, label) for stem, label in ABLATION_COLUMNS
-            if (RESULTS / f"{prefix}{stem}.json").exists()]
-    if len(cols) < 2:
-        print(f"ablation table ({dataset}): not enough arms on disk, skipped")
+    tracks = []
+    for prefix, heading in ABLATION_TRACKS:
+        cols = [(prefix + stem, label) for stem, label in ABLATION_COLUMNS
+                if (RESULTS / f"{prefix}{stem}.json").exists()]
+        if len(cols) < 2:
+            print(f"ablation ({heading}): not enough arms on disk, skipped")
+            continue
+        tracks.append((heading, cols))
+    if not tracks:
         return
-    aggs = {stem: json.loads((RESULTS / f"{stem}.json").read_text())["aggregate"]
-            for stem, _ in cols}
+    # One header serves both blocks, so both must carry the same arms.
+    labels = [label for _, label in tracks[0][1]]
+    if any([label for _, label in cols] != labels for _, cols in tracks):
+        sys.exit("ablation tracks carry different arms; one header cannot serve both")
+    n = len(labels)
 
     lines = [
         r"\begin{table}[t]", r"\centering",
-        r"\caption{Adding the texture objective \eqref{eq:ltex} to the $L_1$ "
-        r"regressor, at two weights, against the same architecture trained with "
-        r"$L_1$ alone and the adversarial model, on "
-        + dataset + r". The statistics of the emitted "
-        r"texture cross the reference, overshooting it in amplitude and in "
-        r"exponent, while correspondence to the measurement falls below that "
-        r"of the adversarial model.}",
-        r"\label{tab:ablation" + ("" if not prefix else "f3") + "}",
+        r"\caption{Texture objective \eqref{eq:ltex} added to EDSR at two "
+        r"weights, against $L_1$ training and ESRGAN (classic degradation).}",
+        r"\label{tab:ablation}",
         r"\setlength{\tabcolsep}{4pt}",
-        r"\begin{tabular}{l" + "c" * len(cols) + "}",
+        r"\begin{tabular}{l" + "c" * n + "}",
         r"\toprule",
-        r"& \multicolumn{" + str(len(cols) - 1) + r"}{c}{EDSR} & \\",
-        r"\cmidrule{2-" + str(len(cols)) + "}",
-        "Metric & " + " & ".join(label for _, label in cols) + r" \\",
-        r"\midrule",
+        r"& \multicolumn{" + str(n - 1) + r"}{c}{EDSR} & \\",
+        r"\cmidrule{2-" + str(n) + "}",
+        "Metric & " + " & ".join(labels) + r" \\",
     ]
-    for key, label, fmt in ABLATION_ROWS:
-        cells = [fmt.format(aggs[stem][key]["mean"]) for stem, _ in cols]
-        lines.append(f"{label} & " + " & ".join(cells) + r" \\")
+    for heading, cols in tracks:
+        aggs = {stem: json.loads((RESULTS / f"{stem}.json").read_text())["aggregate"]
+                for stem, _ in cols}
+        lines += [r"\midrule",
+                  r"\multicolumn{" + str(n + 1) + r"}{l}{\emph{" + heading + r"}} \\"]
+        for key, label, fmt in ABLATION_ROWS:
+            cells = [fmt.format(aggs[stem][key]["mean"]) for stem, _ in cols]
+            lines.append(f"{label} & " + " & ".join(cells) + r" \\")
+        print(f"  -- {heading}")
+        for key, label, fmt in ABLATION_ROWS:
+            vals = "  ".join(f"{fmt.format(aggs[s][key]['mean']):>9}" for s, _ in cols)
+            print(f"  {label[:26]:28s}{vals}")
     lines += [r"\bottomrule", r"\end{tabular}", r"\end{table}"]
-    out.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    print(f"wrote {out}")
-    for key, label, fmt in ABLATION_ROWS:
-        vals = "  ".join(f"{fmt.format(aggs[s][key]['mean']):>9}" for s, _ in cols)
-        print(f"  {label[:26]:28s}{vals}")
+    OUT_ABLATION.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    print(f"wrote {OUT_ABLATION}")
 
 
 OUT_FLAME3 = Path("paper/table_flame3.tex")
@@ -406,7 +425,8 @@ F3_ROWS = [
     ("m0_rmse_k",          "M0 RMSE (K) " + DOWN,             "{:.3f}", "low"),
     ("m1_d10_mask_iou",    "M1 IoU@10K " + UP,                "{:.3f}", "high"),
     ("m2_d10_n_hallucinated",
-     "M2 hallucinated / frame " + DOWN,                       "{:.3f}", "low"),
+     "M2 invented regions (total) " + DOWN,                   COUNT, None),
+    ("m2_d10_miss_rate",   "M2 miss rate " + DOWN,            "{:.3f}", "low"),
     ("m3_spearman_rho",    r"M3 ordering $\rho_s$ " + UP,     "{:.3f}", "high"),
     ("m4_texture_ratio",   "M4 texture ratio " + TO1,         "{:.3f}", "one"),
     ("m5_gradient_ratio",  "M5 gradient ratio " + TO1,        "{:.3f}", "one"),
@@ -430,15 +450,10 @@ def write_flame3_table(models):
 
     lines = [
         r"\begin{table*}[t]", r"\centering",
-        r"\caption{The same protocol at $\times 4$ on FLAME 3 "
-        f"({meta['n_frames']} frames). "
-        r"Training used the Autel XT709 plots and testing uses the DJI M30T "
-        r"subset, so every column is also a cross-instrument transfer. The "
-        r"adversarial model again wins LPIPS, again loses radiometric accuracy, "
-        r"again emits the most texture and again carries the least of the "
-        r"measured signal. Best value per row and degradation in bold; the "
-        r"texture block is left unbolded because $a$ and $r$ rank "
-        r"reconstructions only when read together.}",
+        r"\caption{Results at $\times 4$ on FLAME~3 "
+        f"({meta['n_frames']} test frames; trained on the XT709 camera, tested "
+        r"on the M30T camera). Best value per row and degradation in bold; the "
+        r"texture block is unbolded, as $a$ and $r$ rank only jointly.}",
         r"\label{tab:flame3}",
         r"\setlength{\tabcolsep}{4.5pt}",
         r"\begin{tabular}{l " + "c" * n + " c " + "c" * n + "}",
@@ -458,8 +473,10 @@ def write_flame3_table(models):
         for preset in ("classic", "realistic"):
             vals = [aggs[preset][m][key]["mean"] for m in models]
             best = best_cells(vals, direction, fmt)
-            blocks.append([(r"\textbf{" + fmt.format(v) + "}") if i in best
-                           else fmt.format(v) for i, v in enumerate(vals)])
+            shown = [cell(aggs[preset][m][key], fmt, meta["n_frames"])
+                     for m in models]
+            blocks.append([(r"\textbf{" + s + "}") if i in best else s
+                           for i, s in enumerate(shown)])
         lines.append(f"{label} & " + " & ".join(blocks[0]) + " & & "
                      + " & ".join(blocks[1]) + r" \\")
     lines += [r"\bottomrule", r"\end{tabular}", r"\end{table*}"]
@@ -500,8 +517,6 @@ def main():
     write_main_table(models)
     if args.preset == "classic":
         write_ablation_table()
-        write_ablation_table(prefix="f3_", out=Path("paper/table_ablation_f3.tex"),
-                             dataset="FLAME 3")
         write_control_table()
         write_iisr_table()
         write_sensitivity_table()

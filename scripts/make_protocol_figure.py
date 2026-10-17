@@ -3,8 +3,8 @@
 A reader meeting this work for the first time has to hold five things at once:
 that the reference is a radiometric measurement rather than a picture, that the
 low-resolution input is synthesised from it in the float domain, that the
-metrics are computed in Kelvin, that they split into perceptual and fidelity
-groups which disagree, and that the comparison is paired at video level. The
+metrics are computed in kelvin, that they split into image-quality and fidelity
+groups which disagree, and that the comparison is paired per sampling unit. The
 figure carries that structure so the text does not have to repeat it.
 """
 
@@ -52,20 +52,20 @@ def arrow(ax, x0, y0, x1, y1, label=None, rad=0.0):
 
 
 def main():
-    fig, ax = plt.subplots(figsize=(7.1, 2.15))
+    fig, ax = plt.subplots(figsize=(7.1, 1.65))
     # Margin beyond the drawing so the outermost borders are inside the canvas;
     # bbox_inches="tight" then crops back to the ink actually drawn.
     ax.set_xlim(-0.025, 1.025)
-    ax.set_ylim(-0.06, 1.02)
+    ax.set_ylim(0.04, 0.83)
     ax.axis("off")
 
     h, y = 0.20, 0.60
-    box(ax, 0.005, y, 0.175, h, "16-bit T-linear HR",
-        "measurement, Kelvin", face=MEASURE)
+    box(ax, 0.005, y, 0.175, h, "Radiometric frame",
+        "measurement in kelvin", face=MEASURE)
     box(ax, 0.225, y, 0.155, h, "Degradation", r"$\times 4$, float domain")
     box(ax, 0.425, y, 0.145, h, "Reconstruction", "5 methods")
-    box(ax, 0.615, y, 0.175, h, "Metrics in Kelvin", "on HR grid")
-    box(ax, 0.835, y, 0.160, h, "Paired tests", "video-level")
+    box(ax, 0.615, y, 0.175, h, "Metrics in kelvin", "reference grid")
+    box(ax, 0.835, y, 0.160, h, "Paired tests", "per sampling unit")
 
     mid = y + h / 2
     for x0, x1 in ((0.180, 0.225), (0.380, 0.425), (0.570, 0.615), (0.790, 0.835)):
@@ -83,7 +83,7 @@ def main():
     # The two metric groups hang off the metric stage and disagree with each
     # other; that disagreement is the paper, so it is drawn rather than stated.
     gy, gh = 0.135, 0.165
-    box(ax, 0.455, gy, 0.215, gh, "PSNR / SSIM / LPIPS", "perceptual",
+    box(ax, 0.455, gy, 0.215, gh, "PSNR / SSIM / LPIPS", "image quality",
         face=PERCEPT, fontsize=6.8)
     box(ax, 0.740, gy, 0.215, gh, "M0–M7", "radiometric fidelity",
         face=FIDELITY, fontsize=6.8)
