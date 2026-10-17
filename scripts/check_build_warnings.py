@@ -40,9 +40,21 @@ def main():
         return 0
     text = log.read_text(encoding="utf-8", errors="replace")
 
+    # The IEEE Access class builds its running header and footer bars in the
+    # output routine, and that raises one or two text-width overfull boxes per
+    # page "while \output is active". They are in the log IEEE itself ships
+    # with the template (17 on its 8-page sample), so they describe the class,
+    # not the manuscript, and print nothing out of place. Only those are
+    # skipped, and only under that class.
+    access_class = "ieeeaccess.cls" in text
+    artefact = 0
+
     problems = []
     for m in OVERFULL.finditer(text):
         pt = float(m.group(1))
+        if access_class and "while \\output is active" in m.group(2):
+            artefact += 1
+            continue
         if pt > TOLERANCE_PT:
             problems.append(f"overfull box, {pt:.1f}pt too wide:{m.group(2)}")
     for m in UNDEFINED.finditer(text):
@@ -57,9 +69,12 @@ def main():
         for p in problems:
             print(f"  {p}")
         return 1
-    print(f"{log}: clean"
-          + (f" ({minor} overfull box(es) under {TOLERANCE_PT:.0f}pt, ignored)"
-             if minor else ""))
+    notes = []
+    if minor:
+        notes.append(f"{minor} overfull box(es) under {TOLERANCE_PT:.0f}pt")
+    if artefact:
+        notes.append(f"{artefact} from the ieeeaccess header/footer")
+    print(f"{log}: clean" + (f" (ignored: {'; '.join(notes)})" if notes else ""))
     return 0
 
 

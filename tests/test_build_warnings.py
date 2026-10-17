@@ -51,6 +51,27 @@ def test_multiply_defined_label_fails(tmp_path):
     assert run(tmp_path, MULTIPLY) == 1
 
 
+OUTPUT_OVERFULL = ("Overfull \\hbox (505.12177pt too wide) has occurred while "
+                   "\\output is active\n")
+ACCESS_CLASS = "(./ieeeaccess.cls\nDocument Class: ieeeaccess\n"
+
+
+def test_ieeeaccess_header_artefact_is_ignored(tmp_path):
+    # IEEE ships these in the log of its own template build, one or two per
+    # page from the class's header and footer, so they are not our damage.
+    assert run(tmp_path, ACCESS_CLASS + OUTPUT_OVERFULL * 3) == 0
+
+
+def test_output_routine_overflow_still_fails_under_other_classes(tmp_path):
+    # The exemption is for that class only. Under IEEEtran an overflow in the
+    # output routine is a real float or header problem and must be reported.
+    assert run(tmp_path, "(./IEEEtran.cls\n" + OUTPUT_OVERFULL) == 1
+
+
+def test_a_real_overflow_still_fails_under_ieeeaccess(tmp_path):
+    assert run(tmp_path, ACCESS_CLASS + OVERFULL.format(25.9)) == 1
+
+
 def test_a_clean_log_passes(tmp_path):
     assert run(tmp_path, "Output written on x.pdf (17 pages, 600000 bytes).\n") == 0
 

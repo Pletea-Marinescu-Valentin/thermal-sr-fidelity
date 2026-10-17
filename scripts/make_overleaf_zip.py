@@ -6,8 +6,12 @@ document actually references. Anything referenced but missing produces a build
 that fails only after upload, so this checks the references rather than
 assuming a fixed file list.
 
-IEEEtran.cls is not bundled: Overleaf ships it, and shipping a second copy is a
-common way to end up compiling against the wrong version.
+What else ships depends on the document class. Under plain IEEEtran nothing
+does: Overleaf has it, and a second copy is a common way to compile against the
+wrong version. The IEEE Access class is the opposite case. It is not on
+Overleaf, it loads its own fonts through map files, draws a logo and a bullet
+in every header and footer, and is tested by IEEE against the IEEEtran.cls it
+ships beside it, so all of that goes in the archive or the upload fails.
 """
 
 import re
@@ -18,6 +22,28 @@ from pathlib import Path
 PAPER = Path("paper")
 MAIN = PAPER / "thermal_sr_fidelity.tex"
 OUT = Path("overleaf.zip")
+
+#: Support files each custom class needs beside the document, as globs.
+CLASS_SUPPORT = {
+    "ieeeaccess": ["ieeeaccess.cls", "spotcolor.sty", "IEEEtran.cls",
+                   "IEEEtran.bst", "logo.png", "notaglinelogo.png",
+                   "bullet.png", "t1*.pfb", "t1*.tfm", "t1*.fd", "t1*.map"],
+}
+
+
+def class_support(tex):
+    """Files the document class needs that Overleaf does not provide."""
+    m = re.search(r"\\documentclass(?:\[[^\]]*\])?\{([^}]+)\}",
+                  tex.read_text(encoding="utf-8"))
+    if not m or m.group(1) not in CLASS_SUPPORT:
+        return []
+    files = []
+    for pattern in CLASS_SUPPORT[m.group(1)]:
+        found = sorted(PAPER.glob(pattern))
+        if not found:
+            sys.exit(f"class {m.group(1)} needs {pattern}, not found in {PAPER}")
+        files.extend(found)
+    return files
 
 
 def referenced_files(tex):
@@ -80,6 +106,10 @@ def main():
     bbl = MAIN.with_suffix(".bbl")
     if bbl.exists():
         members.append(bbl)
+
+    for path in class_support(MAIN):
+        if path not in members:
+            members.append(path)
 
     OUT.unlink(missing_ok=True)
     with zipfile.ZipFile(OUT, "w", zipfile.ZIP_DEFLATED) as z:
