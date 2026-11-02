@@ -1,0 +1,24 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "Thermal fidelity evaluation for thermal image super-resolution"
+type: software
+authors:
+  - family-names: Pletea-Marinescu
+    given-names: Valentin
+    affiliation: "National University of Science and Technology POLITEHNICA Bucharest"
+  - family-names: Ciuciulete
+    given-names: Mihai
+    affiliation: "National University of Science and Technology POLITEHNICA Bucharest"
+  - family-names: Stamatescu
+    given-names: Grigore
+    affiliation: "National University of Science and Technology POLITEHNICA Bucharest"
+repository-code: "https://github.com/Pletea-Marinescu-Valentin/thermal-sr-fidelity"
+abstract: >-
+  A deterministic protocol of eight radiometric fidelity metrics, reported in
+  kelvin, for thermal image super-resolution, together with the training and
+  evaluation pipeline behind the accompanying paper.
+keywords:
+  - super-resolution
+  - thermal imaging
+  - radiometric fidelity
+  - image quality assessment

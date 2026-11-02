@@ -1,0 +1,14 @@
+{
+ "raw_min": 5260.0,
+ "raw_max": 9329.0,
+ "span_kelvin": 162.76,
+ "celsius_range": [
+  -62.74999999999997,
+  100.01000000000005
+ ],
+ "fitted_on": "train split only",
+ "cold_floor_percentile": 0.01,
+ "hot_ceiling_celsius": 100.0,
+ "clipped_below_fraction": 9.982641697621143e-05,
+ "clipped_above_fraction": 1.4139579477505695e-05
+}
